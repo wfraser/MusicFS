@@ -18,22 +18,24 @@ enum
 
 #ifndef NODEBUG
 
-#define CONMETA(_level, ...) \
+#define CONLOG(_level, ...) \
     if (musicfs_log_level >= LOG_LEVEL_##_level) \
-        cerr << "MusicFS" _MUSICFS_LOG_SUBSYS " " #_level ": " << __VA_ARGS__ << endl
+        std::cerr << "MusicFS" _MUSICFS_LOG_SUBSYS " " #_level ": " << __VA_ARGS__ << std::endl
 
 #define CONPERROR(...) \
     if (musicfs_log_level >= LOG_LEVEL_ERROR) \
-        cerr << "MusicFS" _MUSICFS_LOG_SUBSYS ": " << __VA_ARGS__ << ": " << strerror(errno) << endl;
+        std::cerr << "MusicFS" _MUSICFS_LOG_SUBSYS ": " << __VA_ARGS__ << ": " << strerror(errno) << std::endl;
 
 #ifndef NOSYSLOG
 #include <syslog.h>
 #include <sstream>
 
-#define META(_level, ...) \
+#define LOG_ERROR LOG_ERR
+
+#define LOGMETA(_level, ...) \
     do { \
         if (musicfs_log_stderr) { \
-            CONMETA(_level, __VA_ARGS__); \
+            CONLOG(_level, __VA_ARGS__); \
         } else if (musicfs_log_level >= LOG_LEVEL_##_level) { \
             std::stringstream ss; \
             ss << MUSICFS_LOG_SUBSYS_ #_level ": " << __VA_ARGS__; \
@@ -41,10 +43,10 @@ enum
         } \
     } while(0)
 
-#define ERROR(...)  META(ERROR, __VA_ARGS__)
-#define WARN(...)   META(WARNING, __VA_ARGS__)
-#define INFO(...)   META(INFO, __VA_ARGS__)
-#define DEBUG(...)  META(DEBUG, __VA_ARGS__)
+#define ERROR(...)  LOGMETA(ERROR, __VA_ARGS__)
+#define WARN(...)   LOGMETA(WARNING, __VA_ARGS__)
+#define INFO(...)   LOGMETA(INFO, __VA_ARGS__)
+#define DEBUG(...)  LOGMETA(DEBUG, __VA_ARGS__)
 #define PERROR(...) \
     do { \
         if (musicfs_log_stderr) { \
@@ -58,10 +60,10 @@ enum
 
 #else // NOSYSLOG
 
-#define ERROR(...)  CONMETA(ERRROR, __VA_ARGS__)
-#define WARN(...)   CONMETA(WARNING, __VA_ARGS__)
-#define INFO(...)   CONMETA(INFO, __VA_ARGS__)
-#define DEBUG(...)  CONMETA(DEBUG, __VA_ARGS__)
+#define ERROR(...)  CONLOG(ERRROR, __VA_ARGS__)
+#define WARN(...)   CONLOG(WARNING, __VA_ARGS__)
+#define INFO(...)   CONLOG(INFO, __VA_ARGS__)
+#define DEBUG(...)  CONLOG(DEBUG, __VA_ARGS__)
 #define PERROR(...) CONPERROR(__VA_ARGS__)
 
 #endif // NOSYSLOG

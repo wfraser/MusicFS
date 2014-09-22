@@ -7,11 +7,11 @@ DEFINES=-DFUSE_USE_VERSION=28 \
         -DMUSICFS_VERSION="\"$(VERSION)\"" \
 
 CXXFLAGS+=-std=c++14 -Wall -pedantic $(DEFINES) -I/usr/include/fuse -g
-LFLAGS+=-Wall -lstdc++ -ltag -lfuse
+LFLAGS+=-Wall -lstdc++ -ltag -lfuse -lsqlite3
 
 all: musicfs
 
-OBJS=main.o MusicInfo.o
+OBJS=main.o MusicInfo.o database.o
 
 musicfs: $(OBJS)
 	$(CXX) $(OBJS) $(LFLAGS) -o musicfs

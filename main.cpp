@@ -2,16 +2,24 @@
 #include <fuse_opt.h>
 
 #include <iostream>
+#include <memory>
 #include <cstddef>
+#include <cstring>
+
+#include <unistd.h>
 
 #include "logging.h"
 #include "MusicInfo.h"
+#include "database.h"
 
 using namespace std;
+        
+static const char *default_pattern = "%artist%/[%year%] %album/%track% - %title%.%ext%";
 
 struct musicfs_opts
 {
     char *backing_fs;
+    char *pattern;
 };
 static musicfs_opts musicfs_opts = {};
 
@@ -20,18 +28,30 @@ bool musicfs_log_stderr = false;
 
 void usage()
 {
+    //TODO
     cout << "usage\n";
 }
 
 int musicfs_getattr(const char *path, struct stat *stbuf)
 {
     DEBUG("getattr " << path);
+    if (strcmp(path, "/") == 0)
+    {
+        stbuf->st_mode = S_IFDIR | 0700;
+        stbuf->st_uid  = getuid();
+        stbuf->st_gid  = getgid();
+        stbuf->st_atim = stbuf->st_mtim = stbuf->st_ctim = {0,123456789} /* todo, should use database's time */;
+        return 0;
+
+        //return stat(musicfs_opts.backing_fs, stbuf);
+    }
     return -EIO;
 }
 
 int musicfs_opendir(const char *path, fuse_file_info *ffi)
 {
     DEBUG("opendir" << path);
+
     return -EIO;
 }
 
@@ -42,7 +62,6 @@ void musicfs_init_fuse_operations()
     IMPL(opendir);
     IMPL(getattr);
 }
-
 
 enum
 {
@@ -60,7 +79,8 @@ enum
 };
 
 static fuse_opt musicfs_opts_spec[] = {
-    { "backing_fs=%s", offsetof(struct musicfs_opts, backing_fs), 0 },
+    { "backing_fs=%s",  offsetof(struct musicfs_opts, backing_fs),  0 },
+    { "pattern=%s",     offsetof(struct musicfs_opts, pattern),     0 },
     FUSE_OPT_KEY("verbose",     KEY_VERBOSE),
     FUSE_OPT_KEY("-v",          KEY_VERBOSE),
     FUSE_OPT_KEY("--verbose",   KEY_VERBOSE),
@@ -162,6 +182,12 @@ int main(int argc, char **argv)
         fuse_opt_add_arg(&args, "-ho");
         fuse_main(args.argc, args.argv, &MusicFS_Opers, nullptr);
         return -1;
+    }
+
+    if (musicfs_opts.pattern == nullptr)
+    {
+        musicfs_opts.pattern = const_cast<char*>(default_pattern);
+        INFO("No path pattern specified, using default: " << default_pattern);
     }
 
     cout << "ready to go!\n";
