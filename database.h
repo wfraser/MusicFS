@@ -31,11 +31,15 @@ public:
     TABLE(Years);
     TABLE(Tracks);
 
-    void AddTrack(const MusicInfo& attributes, std::string filename);
+    void AddTrack(const MusicInfo& attributes, std::string filename, time_t mtime);
+    void RemoveTrack(int id);
+    
+    std::vector<std::tuple<int, time_t, std::string>> GetTracks() const;
 
 private:
     bool GetId(const char *table, std::string value, int *outId);
     void AddRow(const char *table, std::string value, int *outId);
+    void CleanTable(const char *table);
 
     sqlite3 *m_dbHandle;
 };

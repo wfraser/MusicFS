@@ -30,11 +30,12 @@ static vector<string> s_tableStatements =
         "year_id INTEGER NOT NULL, "
         "name TEXT NOT NULL, "
         "track INTEGER, "
-        "filename TEXT NOT NULL, "
-            "FOREIGN KEY(artist_id) REFERENCES artist(id), "
-            "FOREIGN KEY(album_id) REFERENCES album(id), "
-            "FOREIGN KEY(genre_id) REFERENCES genre(id), "
-            "FOREIGN KEY(year_id) REFERENCES year(id) "
+        "path TEXT NOT NULL, "
+        "mtime INTEGER NOT NULL, "
+        "FOREIGN KEY(artist_id) REFERENCES artist(id), "
+        "FOREIGN KEY(album_id) REFERENCES album(id), "
+        "FOREIGN KEY(genre_id) REFERENCES genre(id), "
+        "FOREIGN KEY(year_id) REFERENCES year(id) "
         ");"
 };
 
@@ -157,11 +158,7 @@ void MusicDatabase::AddRow(const char *table, std::string value, int *outId)
         ERROR("unexpected SQLITE_ROW on insert statement");
         throw new exception();
     }
-    else if (result == SQLITE_DONE)
-    {
-        DEBUG("added okay");
-    }
-    else
+    else if (result != SQLITE_DONE)
     {
         CHECKERR_MSG(result, "Error in executing SQL insert statement for " << table);
     }
@@ -171,8 +168,10 @@ void MusicDatabase::AddRow(const char *table, std::string value, int *outId)
     sqlite3_finalize(prepared);
 }
 
-void MusicDatabase::AddTrack(const MusicInfo& attributes, string filename)
+void MusicDatabase::AddTrack(const MusicInfo& attributes, string path, time_t mtime)
 {
+    DEBUG("Adding track: " << path);
+
     int artistId, albumId, genreId, yearId;
 
     if (!GetId("artist", attributes.artist(), &artistId))
@@ -200,7 +199,8 @@ void MusicDatabase::AddTrack(const MusicInfo& attributes, string filename)
         AddRow("year", year, &yearId);
     }
 
-    string trackStmt = "INSERT INTO track (artist_id, album_id, genre_id, year_id, name, track, filename) VALUES(?,?,?,?,?,?,?);";
+    string trackStmt = "INSERT INTO track (artist_id, album_id, genre_id, year_id, name, track, path, mtime) "
+        "VALUES(?,?,?,?,?,?,?,?);";
     sqlite3_stmt *prepared;
     CHECKERR(sqlite3_prepare_v2(m_dbHandle, trackStmt.c_str(), trackStmt.size(), &prepared, nullptr));
 
@@ -212,7 +212,8 @@ void MusicDatabase::AddTrack(const MusicInfo& attributes, string filename)
     CHECKERR(sqlite3_bind_int(prepared, 4, yearId));
     CHECKERR(sqlite3_bind_text(prepared, 5, title.c_str(), title.size(), nullptr));
     CHECKERR(sqlite3_bind_int(prepared, 6, attributes.track()));
-    CHECKERR(sqlite3_bind_text(prepared, 7, filename.c_str(), filename.size(), nullptr));
+    CHECKERR(sqlite3_bind_text(prepared, 7, path.c_str(), path.size(), nullptr));
+    CHECKERR(sqlite3_bind_int(prepared, 8, mtime));
 
     int result = sqlite3_step(prepared);
     if (result != SQLITE_DONE)
@@ -221,4 +222,76 @@ void MusicDatabase::AddTrack(const MusicInfo& attributes, string filename)
     }
 
     sqlite3_finalize(prepared);
+}
+
+void MusicDatabase::CleanTable(const char *table)
+{
+    sqlite3_stmt *prepared;
+    string stmt = string(
+        "DELETE FROM ") + table + " "
+        "WHERE NOT EXISTS ("
+            "SELECT NULL "
+            "FROM track "
+            "WHERE track." + table + "_id = " + table + ".id);";
+    CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
+
+    int result = sqlite3_step(prepared);
+    if (result != SQLITE_DONE)
+    {
+        CHECKERR(result);
+    }
+
+    int count = sqlite3_changes(m_dbHandle);
+    if (count > 0)
+    {
+        DEBUG("Cleaned " << count << " entries from " << table << " table.");
+    }
+}
+
+void MusicDatabase::RemoveTrack(int trackId)
+{
+    sqlite3_stmt *prepared;
+    string stmt = "DELETE FROM track WHERE id = ?;";
+    CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
+    CHECKERR(sqlite3_bind_int(prepared, 1, trackId));
+    
+    int result = sqlite3_step(prepared);
+    if (result != SQLITE_DONE)
+    {
+        CHECKERR(result);
+    }
+    
+    sqlite3_finalize(prepared);
+
+    CleanTable("artist");
+    CleanTable("album");
+    CleanTable("genre");
+    CleanTable("year");
+}
+
+vector<tuple<int, time_t, string>> MusicDatabase::GetTracks() const
+{
+    vector<tuple<int, time_t, string>> results;
+
+    sqlite3_stmt *prepared;
+    string stmt = "SELECT id, mtime, path FROM track;";
+    CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
+
+    int result;
+    while ((result = sqlite3_step(prepared)) == SQLITE_ROW)
+    {
+        int id = sqlite3_column_int(prepared, 0);
+        time_t mtime = sqlite3_column_int64(prepared, 1);
+        string path = reinterpret_cast<const char*>(sqlite3_column_text(prepared, 2));
+
+        results.emplace_back(id, mtime, path);
+    }
+    if (result != SQLITE_DONE)
+    {
+        CHECKERR(result);
+    }
+
+    sqlite3_finalize(prepared);
+
+    return results;
 }
