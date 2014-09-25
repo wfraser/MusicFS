@@ -10,6 +10,11 @@ MusicInfo::MusicInfo(const char *path)
 {
 }
 
+bool MusicInfo::has_tag() const
+{
+    return (m_fileRef.tag() != nullptr);
+}
+
 #define STRMETHOD(_name) string MusicInfo::_name() const \
 { \
     return m_fileRef.tag()->_name().to8Bit(true); \

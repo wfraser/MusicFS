@@ -7,6 +7,8 @@ class MusicInfo
 public:
     MusicInfo(const char *path);
 
+    bool has_tag() const;
+
     std::string title() const;
     std::string artist() const;
     std::string album() const;

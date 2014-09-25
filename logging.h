@@ -1,5 +1,8 @@
 #pragma once
 
+#include <string.h> // for strerror
+#include <errno.h> // for errno
+
 #ifndef MUSICFS_LOG_SUBSYS
 #define _MUSICFS_LOG_SUBSYS
 #define MUSICFS_LOG_SUBSYS_
@@ -54,7 +57,7 @@ enum
         } else if (musicfs_log_level >= LOG_LEVEL_ERROR) { \
             std::stringstream ss; \
             ss << MUSICFS_LOG_SUBSYS_ "ERROR: " << __VA_ARGS__ << ": " << strerror(errno) << endl; \
-            syslog(LOG_ERROR, "%s", ss.str().c_stR()); \
+            syslog(LOG_ERROR, "%s", ss.str().c_str()); \
         } \
     } while (0)
 

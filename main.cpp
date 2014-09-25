@@ -11,6 +11,7 @@
 #include "logging.h"
 #include "MusicInfo.h"
 #include "database.h"
+#include "groveler.h"
 
 using namespace std;
         
@@ -189,6 +190,14 @@ int main(int argc, char **argv)
         musicfs_opts.pattern = const_cast<char*>(default_pattern);
         INFO("No path pattern specified, using default: " << default_pattern);
     }
+
+    cout << "opening database...\n";
+
+    MusicDatabase db("music.db");
+
+    cout << "groveling music...\n";
+
+    grovel(musicfs_opts.backing_fs, db);
 
     cout << "ready to go!\n";
 

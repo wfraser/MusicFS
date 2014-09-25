@@ -1,6 +1,6 @@
 #pragma once
 
-struct Constraints
+struct MusicAttributes
 {
     std::unique_ptr<std::string> genre,
         artist,
@@ -23,7 +23,7 @@ public:
     MusicDatabase(MusicDatabase&&) = delete;
 
 #undef TABLE
-#define TABLE(_x) std::vector<std::string> _x(const Constraints&) const
+#define TABLE(_x) std::vector<std::string> _x(const MusicAttributes& constraints) const
     TABLE(Genres);
     TABLE(Artists);
     TABLE(Albums);
@@ -31,6 +31,11 @@ public:
     TABLE(Years);
     TABLE(Tracks);
 
+    void AddTrack(const MusicInfo& attributes, std::string filename);
+
 private:
+    bool GetId(const char *table, std::string value, int *outId);
+    void AddRow(const char *table, std::string value, int *outId);
+
     sqlite3 *m_dbHandle;
 };
