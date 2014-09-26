@@ -34,6 +34,8 @@ public:
     void BeginHeavyWriting();
     void EndHeavyWriting();
 
+    void CleanTables();
+
 private:
 
     bool GetId(const char *table, std::string value, int *outId);

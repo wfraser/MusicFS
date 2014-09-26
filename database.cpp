@@ -360,7 +360,10 @@ void MusicDatabase::RemoveTrack(int trackId)
     }
     
     sqlite3_finalize(prepared);
+}
 
+void MusicDatabase::CleanTables()
+{
     CleanTable("artist");
     CleanTable("album");
     CleanTable("genre");

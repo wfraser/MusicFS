@@ -163,5 +163,7 @@ void grovel(const string& base_path, MusicDatabase& db)
 
     INFO("Groveled " << groveled_count << " new/updated tracks.");
 
+    db.CleanTables();
+
     db.EndHeavyWriting();
 }
