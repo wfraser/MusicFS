@@ -96,7 +96,7 @@ void grovel(const string& base_path, MusicDatabase& db)
 
         if (pos == files.end())
         {
-            DEBUG("File " << path << " not found; removing from DB");
+            DEBUG("File not found; removing from DB: " << path);
             db.RemoveTrack(trackId);
             removed_count++;
         }
@@ -113,14 +113,14 @@ void grovel(const string& base_path, MusicDatabase& db)
             if (s.st_mtime == mtime)
             {
                 // MTime is identical; we can skip groveling this one.
-                DEBUG("File " << path << " skipped due to MTime");
+                DEBUG("File skipped due to MTime: " << path);
                 files.erase(pos);
                 skipped_count++;
             }
             else
             {
                 // TODO: don't do this, but do an update instead.
-                DEBUG("File " << path << " has changed; removing from DB");
+                DEBUG("File has changed; removing from DB: " << path);
                 db.RemoveTrack(trackId);
             }
         }
@@ -139,8 +139,6 @@ void grovel(const string& base_path, MusicDatabase& db)
 
         MusicInfo info(path.c_str());
 
-        DEBUG("file: " << path);
-
         if (info.has_tag())
         {
             string partial_path(path.c_str() + base_path.size(), path.size() - base_path.size());
@@ -157,7 +155,7 @@ void grovel(const string& base_path, MusicDatabase& db)
         }
         else
         {
-            DEBUG("no tag");
+            DEBUG("no tag: " << path);
         }
     }
 

@@ -127,6 +127,7 @@ int musicfs_opt_proc(void *data, const char *arg, int key,
 
     case KEY_VERBOSE:
         musicfs_log_level = LOG_LEVEL_INFO;
+        musicfs_log_stderr = true;
         return FUSE_OPT_DISCARD;
 
     case KEY_DEBUG:
@@ -167,6 +168,8 @@ int main(int argc, char **argv)
         cerr << "MusicFS: argument parsing failed.\n";
         return 1;
     }
+
+    DEBUG("Version " MUSICFS_VERSION);
 
     if (num_nonopt_args_read > 0)
     {
