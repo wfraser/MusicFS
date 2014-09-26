@@ -114,27 +114,40 @@ bool MusicDatabase::GetId(const char *table, std::string value, int *outId)
     return found;
 }
 
-vector<vector<string>> MusicDatabase::GetTables(const vector<string>& tables, const MusicAttributes& constraints) const
+vector<vector<string>> MusicDatabase::GetValues(const vector<string>& columns, const MusicAttributes& constraints) const
 {
     stringstream stmt;
 
     stmt << "SELECT DISTINCT ";
-    for (size_t i = 0, n = tables.size(); i < n; i++)
+    for (size_t i = 0, n = columns.size(); i < n; i++)
     {
-        if (tables[i] == "track")
+        if (columns[i] == "track")
         {
             stmt << "track.track ";
         }
+        else if (columns[i] == "filename")
+        {
+            stmt << "track.filename ";
+        }
         else
         {
-            stmt << tables[i] << ".name ";
+            stmt << columns[i] << ".name ";
         }
         if (i != n - 1)
             stmt << ", ";
     }
     stmt << "FROM track ";
 
-    unordered_set<string> joined_tables(tables.begin(), tables.end());
+    unordered_set<string> joined_tables;
+    for (const string& column : columns)
+    {
+        if (column != "track"
+            && column != "filename")
+        {
+            joined_tables.insert(column);
+        }
+    }
+
     vector<string> where_clauses;
 
 #define join_table(_) \
@@ -171,7 +184,6 @@ vector<vector<string>> MusicDatabase::GetTables(const vector<string>& tables, co
     if (constraints._ != nullptr) \
     { \
         int index = sqlite3_bind_parameter_index(prepared, "$" #_); \
-        DEBUG("index: " << index); \
         if (constraints._->empty()) \
         { \
             CHECKERR(sqlite3_bind_null(prepared, index)); \
@@ -207,7 +219,7 @@ vector<vector<string>> MusicDatabase::GetTables(const vector<string>& tables, co
     while ((result = sqlite3_step(prepared)) == SQLITE_ROW)
     {
         results.emplace_back();
-        for (size_t i = 0, n = tables.size(); i < n; i++)
+        for (size_t i = 0, n = columns.size(); i < n; i++)
         {
             const char *value = reinterpret_cast<const char*>(sqlite3_column_text(prepared, i));
             results.back().emplace_back(value);

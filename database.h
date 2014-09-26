@@ -22,8 +22,8 @@ public:
     MusicDatabase& operator=(const MusicDatabase&) = delete;
     MusicDatabase(MusicDatabase&&) = delete;
 
-    std::vector<std::vector<std::string>> GetTables(
-        const std::vector<std::string>& tables,
+    std::vector<std::vector<std::string>> GetValues(
+        const std::vector<std::string>& columns,
         const MusicAttributes& constraints
         ) const;
 
