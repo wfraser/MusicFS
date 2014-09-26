@@ -139,37 +139,29 @@ bool MusicDatabase::GetId(const char *table, std::string value, int *outId)
 
 vector<string> MusicDatabase::GetTable(const string& table, const MusicAttributes& constraints) const
 {
-    string stmt = string("SELECT DISTINCT ") + table + ".name FROM " + table + ", track";
+    string stmt = string("SELECT DISTINCT x.name FROM track JOIN ") + table + " x ON x.id = track." + table + "_id ";
     vector<string> where_clauses;
 
     string where;
 
-    if (constraints.artist != nullptr)
-    {
-        if (table != "artist")
-            stmt += ", artist";
-        where_clauses.push_back("track.artist_id = artist.id AND artist.name = $artist");
+#define join_table(_) \
+    if (constraints._ != nullptr) \
+    { \
+        if (table != #_) \
+        { \
+            stmt += "JOIN " #_ " ON " #_ ".id = track." #_ "_id "; \
+        } \
+        where_clauses.push_back(#_ ".name = $" #_); \
     }
-    if (constraints.album != nullptr)
-    {
-        if (table != "album")
-            stmt += ", album";
-        where_clauses.push_back("track.album_id = album.id AND album.name = $album");
-    }
-    if (constraints.genre != nullptr)
-    {
-        if (table != "genre")
-            stmt += ", genre";
-        where_clauses.push_back("track.genre_id = genre.id AND genre.name = $genre");
-    }
-    if (constraints.year != nullptr)
-    {
-        if (table != "year")
-            stmt += ", year";
-        where_clauses.push_back("track.year_id = year.id AND year.name = $year");
-    }
+
+    join_table(artist);
+    join_table(album);
+    join_table(genre);
+    join_table(year);
+
     if (constraints.track != nullptr)
     {
+        // No join necessary; it's a column on the track table.
         where_clauses.push_back("track.track = ?track");
     }
 
@@ -192,7 +184,14 @@ vector<string> MusicDatabase::GetTable(const string& table, const MusicAttribute
     { \
         int index = sqlite3_bind_parameter_index(prepared, "$" #_); \
         DEBUG("index: " << index); \
-        CHECKERR(sqlite3_bind_text(prepared, index, constraints._->c_str(), constraints._->size(), nullptr)); \
+        if (constraints._->empty()) \
+        { \
+            CHECKERR(sqlite3_bind_null(prepared, index)); \
+        } \
+        else \
+        { \
+            CHECKERR(sqlite3_bind_text(prepared, index, constraints._->c_str(), constraints._->size(), nullptr)); \
+        } \
     }
 
     bind_text(artist)
@@ -202,6 +201,7 @@ vector<string> MusicDatabase::GetTable(const string& table, const MusicAttribute
 
     if (constraints.track != nullptr)
     {
+        // Track is the only one that's an int.
         int pos = sqlite3_bind_parameter_index(prepared, "track");
         if (constraints.track->empty())
         {
