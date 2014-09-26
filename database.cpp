@@ -137,6 +137,100 @@ bool MusicDatabase::GetId(const char *table, std::string value, int *outId)
     return found;
 }
 
+vector<string> MusicDatabase::GetTable(const string& table, const MusicAttributes& constraints) const
+{
+    string stmt = string("SELECT DISTINCT ") + table + ".name FROM " + table + ", track";
+    vector<string> where_clauses;
+
+    string where;
+
+    if (constraints.artist != nullptr)
+    {
+        if (table != "artist")
+            stmt += ", artist";
+        where_clauses.push_back("track.artist_id = artist.id AND artist.name = $artist");
+    }
+    if (constraints.album != nullptr)
+    {
+        if (table != "album")
+            stmt += ", album";
+        where_clauses.push_back("track.album_id = album.id AND album.name = $album");
+    }
+    if (constraints.genre != nullptr)
+    {
+        if (table != "genre")
+            stmt += ", genre";
+        where_clauses.push_back("track.genre_id = genre.id AND genre.name = $genre");
+    }
+    if (constraints.year != nullptr)
+    {
+        if (table != "year")
+            stmt += ", year";
+        where_clauses.push_back("track.year_id = year.id AND year.name = $year");
+    }
+    if (constraints.track != nullptr)
+    {
+        where_clauses.push_back("track.track = ?track");
+    }
+
+    stmt += " WHERE ";
+    for (size_t i = 0, n = where_clauses.size(); i < n; i++)
+    {
+        stmt += move(where_clauses[i]);
+        if (i != n - 1)
+            stmt += " AND ";
+    }
+    stmt += ";";
+
+    DEBUG("GetTable(" << table << "): " << stmt);
+
+    sqlite3_stmt *prepared;
+    CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
+
+#define bind_text(_) \
+    if (constraints._ != nullptr) \
+    { \
+        int index = sqlite3_bind_parameter_index(prepared, "$" #_); \
+        DEBUG("index: " << index); \
+        CHECKERR(sqlite3_bind_text(prepared, index, constraints._->c_str(), constraints._->size(), nullptr)); \
+    }
+
+    bind_text(artist)
+    bind_text(album)
+    bind_text(genre)
+    bind_text(year)
+
+    if (constraints.track != nullptr)
+    {
+        int pos = sqlite3_bind_parameter_index(prepared, "track");
+        if (constraints.track->empty())
+        {
+            CHECKERR(sqlite3_bind_null(prepared, pos));
+        }
+        else
+        {
+            int t = atoi(constraints.track->c_str());
+            CHECKERR(sqlite3_bind_int(prepared, pos, t));
+        }
+    }
+
+    vector<string> results;
+    int result;
+    while ((result = sqlite3_step(prepared)) == SQLITE_ROW)
+    {
+        const char* value = reinterpret_cast<const char*>(sqlite3_column_text(prepared, 0));
+        results.emplace_back(value);
+    }
+    if (result != SQLITE_DONE)
+    {
+        CHECKERR(result);
+    }
+
+    sqlite3_finalize(prepared);
+
+    return results;
+}
+
 void MusicDatabase::AddRow(const char *table, std::string value, int *outId)
 {
     int result = 0;

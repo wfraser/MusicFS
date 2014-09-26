@@ -22,14 +22,7 @@ public:
     MusicDatabase& operator=(const MusicDatabase&) = delete;
     MusicDatabase(MusicDatabase&&) = delete;
 
-#undef TABLE
-#define TABLE(_x) std::vector<std::string> _x(const MusicAttributes& constraints) const
-    TABLE(Genres);
-    TABLE(Artists);
-    TABLE(Albums);
-    TABLE(Titles);
-    TABLE(Years);
-    TABLE(Tracks);
+    std::vector<std::string> GetTable(const std::string& table, const MusicAttributes& constraints) const;
 
     void AddTrack(const MusicInfo& attributes, std::string filename, time_t mtime);
     void RemoveTrack(int id);
@@ -39,6 +32,7 @@ public:
     void EndHeavyWriting();
 
 private:
+
     bool GetId(const char *table, std::string value, int *outId);
     void AddRow(const char *table, std::string value, int *outId);
     void CleanTable(const char *table);
