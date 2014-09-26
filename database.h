@@ -22,7 +22,10 @@ public:
     MusicDatabase& operator=(const MusicDatabase&) = delete;
     MusicDatabase(MusicDatabase&&) = delete;
 
-    std::vector<std::string> GetTable(const std::string& table, const MusicAttributes& constraints) const;
+    std::vector<std::vector<std::string>> GetTables(
+        const std::vector<std::string>& tables,
+        const MusicAttributes& constraints
+        ) const;
 
     void AddTrack(const MusicInfo& attributes, std::string filename, time_t mtime);
     void RemoveTrack(int id);

@@ -2,6 +2,8 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <sstream>
+#include <unordered_set>
 
 #include <sqlite3.h>
 
@@ -10,10 +12,21 @@ extern int musicfs_log_level;
 extern bool musicfs_log_stderr;
 #include "logging.h"
 
+#include "util.h"
 #include "MusicInfo.h"
 #include "database.h"
 
 using namespace std;
+
+#define CHECKERR(_) CHECKERR_MSG(_, "SQL Error")
+#define CHECKERR_MSG(_, msg) \
+    do { \
+        if ((_) != SQLITE_OK) \
+        { \
+            ERROR(msg << " at " __FILE__ ":" << __LINE__  << ": " << sqlite3_errmsg(m_dbHandle)); \
+            throw new exception(); \
+        } \
+    } while(0)
 
 static vector<string> s_tableStatements =
 {
@@ -43,35 +56,15 @@ MusicDatabase::MusicDatabase(const char *dbFile)
 {
     int flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE;
 
-    int result = sqlite3_open_v2(dbFile, &m_dbHandle, flags, nullptr);
-    if (result != 0)
-    {
-        ERROR("Failed to open database file \"" << dbFile << "\": " << sqlite3_errmsg(m_dbHandle));
-        sqlite3_close(m_dbHandle);
-        throw new exception();
-    }
+    CHECKERR_MSG(sqlite3_open_v2(dbFile, &m_dbHandle, flags, nullptr),
+        "Failed to open database file \"" << dbFile << "\": " << sqlite3_errmsg(m_dbHandle));
 
     for (size_t i = 0, n = s_tableStatements.size(); i < n; i++)
     {
         string& statement = s_tableStatements[i];
         
-        /*
-        sqlite3_stmt *prepared;
-        int result = sqlite3_prepare_v2(m_dbHandle, statement.c_str(), statement.size(), &prepared, nullptr);
-        if (result != S_OK)
-        {
-            ERROR("Error in SQL table creation statement " << i << ": " << result);
-            throw new exception("SQL error");
-        }
-        */
-
-        char *errMsg;
-        int result = sqlite3_exec(m_dbHandle, statement.c_str(), nullptr, nullptr, &errMsg);
-        if (result != SQLITE_OK)
-        {
-            ERROR("Error in SQL table creation statement " << i << ": (" << result << ") " << errMsg);
-            throw new exception();
-        }
+        CHECKERR_MSG(sqlite3_exec(m_dbHandle, statement.c_str(), nullptr, nullptr, nullptr),
+            "Error in SQL table creation statement " << i);
 
         /*
         if (sqlite3_changes(m_dbHandle) == 0)
@@ -90,35 +83,19 @@ MusicDatabase::~MusicDatabase()
 
 bool MusicDatabase::GetId(const char *table, std::string value, int *outId)
 {
-    int result = 0;
-
     string stmt = "SELECT id FROM ";
     stmt.append(table);
     stmt.append(" WHERE name = ?;");
     
     sqlite3_stmt *prepared;
-    result = sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr);
-    if (result != SQLITE_OK)
-    {
-        ERROR("Error preparing SQL select statement for " << table << ": " << sqlite3_errmsg(m_dbHandle));
-        throw new exception();
-    }
+    CHECKERR_MSG(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr),
+        "Error preparing SQL select statement for " << table << ": " << sqlite3_errmsg(m_dbHandle));
 
-#define CHECKERR(_) CHECKERR_MSG(_, "SQL Error")
-#define CHECKERR_MSG(_, msg) \
-    do { \
-        if ((_) != SQLITE_OK) \
-        { \
-            ERROR(msg << " at " __FILE__ ":" << __LINE__  << ": " << sqlite3_errmsg(m_dbHandle)); \
-            throw new exception(); \
-        } \
-    } while(0)
-
-    result = sqlite3_bind_text(prepared, 1, value.c_str(), value.size(), nullptr);
-    CHECKERR_MSG(result, "Error in binding SQL select statement for " << table);
+    CHECKERR_MSG(sqlite3_bind_text(prepared, 1, value.c_str(), value.size(), nullptr),
+        "Error in binding SQL select statement for " << table);
 
     bool found = true;
-    result = sqlite3_step(prepared);
+    int result = sqlite3_step(prepared);
     if (result == SQLITE_ROW)
     {
         *outId = sqlite3_column_int(prepared, 0);
@@ -137,27 +114,40 @@ bool MusicDatabase::GetId(const char *table, std::string value, int *outId)
     return found;
 }
 
-vector<string> MusicDatabase::GetTable(const string& table, const MusicAttributes& constraints) const
+vector<vector<string>> MusicDatabase::GetTables(const vector<string>& tables, const MusicAttributes& constraints) const
 {
-    string stmt = string("SELECT DISTINCT x.name FROM track JOIN ") + table + " x ON x.id = track." + table + "_id ";
-    vector<string> where_clauses;
+    stringstream stmt;
 
-    string where;
+    stmt << "SELECT DISTINCT ";
+    for (size_t i = 0, n = tables.size(); i < n; i++)
+    {
+        if (tables[i] == "track")
+        {
+            stmt << "track.track ";
+        }
+        else
+        {
+            stmt << tables[i] << ".name ";
+        }
+        if (i != n - 1)
+            stmt << ", ";
+    }
+    stmt << "FROM track ";
+
+    unordered_set<string> joined_tables(tables.begin(), tables.end());
+    vector<string> where_clauses;
 
 #define join_table(_) \
     if (constraints._ != nullptr) \
     { \
-        if (table != #_) \
-        { \
-            stmt += "JOIN " #_ " ON " #_ ".id = track." #_ "_id "; \
-        } \
+        joined_tables.insert(#_); \
         where_clauses.push_back(#_ ".name = $" #_); \
     }
 
-    join_table(artist);
-    join_table(album);
-    join_table(genre);
-    join_table(year);
+    join_table(artist)
+    join_table(album)
+    join_table(genre)
+    join_table(year)
 
     if (constraints.track != nullptr)
     {
@@ -165,19 +155,17 @@ vector<string> MusicDatabase::GetTable(const string& table, const MusicAttribute
         where_clauses.push_back("track.track = ?track");
     }
 
-    stmt += " WHERE ";
-    for (size_t i = 0, n = where_clauses.size(); i < n; i++)
+    for (const auto& table : joined_tables)
     {
-        stmt += move(where_clauses[i]);
-        if (i != n - 1)
-            stmt += " AND ";
+        stmt << "JOIN " << table << " ON " << table << ".id = track." << table << "_id ";
     }
-    stmt += ";";
 
-    DEBUG("GetTable(" << table << "): " << stmt);
+    stmt << " WHERE " << join(where_clauses, " AND ") << ";";
+
+    DEBUG("GetTable: " << stmt.str());
 
     sqlite3_stmt *prepared;
-    CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
+    CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.str().c_str(), stmt.str().size(), &prepared, nullptr));
 
 #define bind_text(_) \
     if (constraints._ != nullptr) \
@@ -214,12 +202,16 @@ vector<string> MusicDatabase::GetTable(const string& table, const MusicAttribute
         }
     }
 
-    vector<string> results;
+    vector<vector<string>> results;
     int result;
     while ((result = sqlite3_step(prepared)) == SQLITE_ROW)
     {
-        const char* value = reinterpret_cast<const char*>(sqlite3_column_text(prepared, 0));
-        results.emplace_back(value);
+        results.emplace_back();
+        for (size_t i = 0, n = tables.size(); i < n; i++)
+        {
+            const char *value = reinterpret_cast<const char*>(sqlite3_column_text(prepared, i));
+            results.back().emplace_back(value);
+        }
     }
     if (result != SQLITE_DONE)
     {
