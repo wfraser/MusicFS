@@ -33,8 +33,10 @@ public:
 
     void AddTrack(const MusicInfo& attributes, std::string filename, time_t mtime);
     void RemoveTrack(int id);
-    
     std::vector<std::tuple<int, time_t, std::string>> GetTracks() const;
+
+    void BeginHeavyWriting();
+    void EndHeavyWriting();
 
 private:
     bool GetId(const char *table, std::string value, int *outId);

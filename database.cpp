@@ -295,3 +295,21 @@ vector<tuple<int, time_t, string>> MusicDatabase::GetTracks() const
 
     return results;
 }
+
+void MusicDatabase::BeginHeavyWriting()
+{
+    int result = sqlite3_exec(m_dbHandle, "BEGIN;", nullptr, nullptr, nullptr);
+    if (result != SQLITE_DONE)
+    {
+        CHECKERR(result);
+    }
+}
+
+void MusicDatabase::EndHeavyWriting()
+{
+    int result = sqlite3_exec(m_dbHandle, "END;", nullptr, nullptr, nullptr);
+    if (result != SQLITE_DONE)
+    {
+        CHECKERR(result);
+    }
+}
