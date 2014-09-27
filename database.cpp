@@ -4,6 +4,7 @@
 #include <memory>
 #include <sstream>
 #include <unordered_set>
+#include <utility>
 
 #include <sqlite3.h>
 
@@ -114,24 +115,28 @@ bool MusicDatabase::GetId(const char *table, std::string value, int *outId)
     return found;
 }
 
-vector<vector<string>> MusicDatabase::GetValues(const vector<string>& columns, const MusicAttributes& constraints) const
+vector<vector<pair<int,string>>> MusicDatabase::GetValues(const vector<string>& columns, const MusicAttributes& constraints) const
 {
     stringstream stmt;
 
     stmt << "SELECT DISTINCT ";
     for (size_t i = 0, n = columns.size(); i < n; i++)
     {
-        if (columns[i] == "track")
+        if (columns[i] == "title")
+        {
+            stmt << "track.id, track.name ";
+        }
+        else if (columns[i] == "track")
         {
             stmt << "track.track ";
         }
-        else if (columns[i] == "filename")
+        else if (columns[i] == "path")
         {
-            stmt << "track.filename ";
+            stmt << "track.path ";
         }
         else
         {
-            stmt << columns[i] << ".name ";
+            stmt << columns[i] << ".id, " << columns[i] << ".name ";
         }
         if (i != n - 1)
             stmt << ", ";
@@ -141,7 +146,8 @@ vector<vector<string>> MusicDatabase::GetValues(const vector<string>& columns, c
     unordered_set<string> joined_tables;
     for (const string& column : columns)
     {
-        if (column != "track"
+        if (column != "title"
+            && column != "track"
             && column != "filename")
         {
             joined_tables.insert(column);
@@ -214,15 +220,23 @@ vector<vector<string>> MusicDatabase::GetValues(const vector<string>& columns, c
         }
     }
 
-    vector<vector<string>> results;
+    vector<vector<pair<int, string>>> results;
     int result;
     while ((result = sqlite3_step(prepared)) == SQLITE_ROW)
     {
         results.emplace_back();
-        for (size_t i = 0, n = columns.size(); i < n; i++)
+        for (size_t i = 0, j = 0, n = columns.size(); i < n; i++)
         {
-            const char *value = reinterpret_cast<const char*>(sqlite3_column_text(prepared, i));
-            results.back().emplace_back(value);
+            int id;
+            if (columns[i] == "track" || columns[i] == "path")
+                id = -1;
+            else
+            {
+                id = sqlite3_column_int(prepared, j++);
+            }
+
+            string value = reinterpret_cast<const char*>(sqlite3_column_text(prepared, j++));
+            results.back().emplace_back(id, value);
         }
     }
     if (result != SQLITE_DONE)
