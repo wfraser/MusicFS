@@ -78,8 +78,6 @@ void grovel(const string& base_path, MusicDatabase& db)
 
     // Next, go through the DB and remove any tracks for which there are no files or their file is unchanged since last grovel.
 
-    db.BeginHeavyWriting();
-
     INFO("Checking database freshness...");
 
     vector<tuple<int, time_t, string>> tracks = db.GetTracks();
@@ -164,6 +162,4 @@ void grovel(const string& base_path, MusicDatabase& db)
     INFO("Groveled " << groveled_count << " new/updated tracks.");
 
     db.CleanTables();
-
-    db.EndHeavyWriting();
 }

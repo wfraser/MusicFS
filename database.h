@@ -2,12 +2,18 @@
 
 struct MusicAttributes
 {
-    std::unique_ptr<std::string> genre,
+    std::unique_ptr<std::string>
         artist,
         album,
+        genre,
         title,
         year,
         track;
+};
+
+struct MusicAttributesById
+{
+    int artist_id, album_id, genre_id, year_id, track_id;
 };
 
 struct sqlite3;
@@ -27,9 +33,17 @@ public:
         const MusicAttributes& constraints
         ) const;
 
+    std::vector<std::vector<std::pair<int, std::string>>> GetValues(
+        const std::vector<std::string>& columns,
+        const MusicAttributesById& constraints
+        ) const;
+
     void AddTrack(const MusicInfo& attributes, std::string filename, time_t mtime);
     void RemoveTrack(int id);
     std::vector<std::tuple<int, time_t, std::string>> GetTracks() const;
+
+    void ClearPaths();
+    void AddPath(const std::string& path, const MusicAttributesById& constraints);
 
     void BeginHeavyWriting();
     void EndHeavyWriting();

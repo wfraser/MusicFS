@@ -50,6 +50,20 @@ static vector<string> s_tableStatements =
         "FOREIGN KEY(album_id) REFERENCES album(id), "
         "FOREIGN KEY(genre_id) REFERENCES genre(id), "
         "FOREIGN KEY(year_id) REFERENCES year(id) "
+        ");",
+    "CREATE TABLE IF NOT EXISTS path ( "
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "path TEXT NOT NULL, "
+        "artist_id INTEGER, "
+        "album_id INTEGER, "
+        "genre_id INTEGER, "
+        "year_id INTEGER, "
+        "track_id INTEGER, "
+        "FOREIGN KEY(artist_id) REFERENCES artist(id), "
+        "FOREIGN KEY(album_id) REFERENCES album(id), "
+        "FOREIGN KEY(genre_id) REFERENCES genre(id), "
+        "FOREIGN KEY(year_id) REFERENCES year(id), "
+        "FOREIGN KEY(track_id) REFERENCES track(id) "
         ");"
 };
 
@@ -115,6 +129,155 @@ bool MusicDatabase::GetId(const char *table, std::string value, int *outId)
     return found;
 }
 
+void MusicDatabase::ClearPaths()
+{
+    CHECKERR_MSG(sqlite3_exec(m_dbHandle, "DELETE FROM path;", nullptr, nullptr, nullptr),
+        "Error clearing out path table");
+}
+
+void MusicDatabase::AddPath(const std::string& path, const MusicAttributesById& constraints)
+{
+    string stmt = "INSERT INTO path (path, artist_id, album_id, genre_id, year_id, track_id) VALUES (?,?,?,?,?,?);";
+
+    sqlite3_stmt *prepared;
+    CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
+
+    CHECKERR(sqlite3_bind_text(prepared, 1, path.c_str(), path.size(), nullptr));
+
+#define bind_int(_pos, _value) \
+    if (_value == -1) \
+        CHECKERR(sqlite3_bind_null(prepared, _pos)); \
+    else \
+        CHECKERR(sqlite3_bind_int(prepared, _pos, _value))
+
+    bind_int(2, constraints.artist_id);
+    bind_int(3, constraints.album_id);
+    bind_int(4, constraints.genre_id);
+    bind_int(5, constraints.year_id);
+    bind_int(6, constraints.track_id);
+
+#undef bind_int
+
+    int result = sqlite3_step(prepared);
+    if (result != SQLITE_DONE)
+    {
+        CHECKERR_MSG(result, "Error adding path row");
+    }
+
+    sqlite3_finalize(prepared);
+}
+
+vector<vector<pair<int,string>>> MusicDatabase::GetValues(const vector<string>& columns, const MusicAttributesById& constraints) const
+{
+    stringstream stmt;
+
+    stmt << "SELECT DISTINCT ";
+    for (size_t i = 0, n = columns.size(); i < n; i++)
+    {
+        if (columns[i] == "title")
+        {
+            stmt << "track.id, track.name ";
+        }
+        else if (columns[i] == "track")
+        {
+            stmt << "track.track ";
+        }
+        else if (columns[i] == "path")
+        {
+            stmt << "track.path ";
+        }
+        else
+        {
+            stmt << columns[i] << ".id, " << columns[i] << ".name ";
+        }
+        if (i != n - 1)
+            stmt << ", ";
+    }
+    stmt << "FROM track ";
+
+    unordered_set<string> joined_tables;
+    for (const string& column : columns)
+    {
+        if (column != "title"
+            && column != "track"
+            && column != "path")
+        {
+            joined_tables.insert(column);
+        }
+    }
+
+    vector<string> where_clauses;
+
+#define join_table(_) \
+    if (constraints._##_id != -1) \
+    { \
+        where_clauses.push_back("track." #_ "_id = $" #_); \
+    }
+
+    join_table(artist)
+    join_table(album)
+    join_table(genre)
+    join_table(year)
+
+#undef join_table
+
+    for (const auto& table : joined_tables)
+    {
+        stmt << "JOIN " << table << " ON " << table << ".id = track." << table << "_id ";
+    }
+
+    if (where_clauses.size() > 0)
+        stmt << " WHERE " << join(where_clauses, " AND ");
+    stmt << ";";
+
+    DEBUG("GetValues(id): " << stmt.str());
+
+    sqlite3_stmt *prepared;
+    CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.str().c_str(), stmt.str().size(), &prepared, nullptr));
+
+#define bind_text(_) \
+    if (constraints._##_id != -1) \
+    { \
+        int index = sqlite3_bind_parameter_index(prepared, "$" #_); \
+        CHECKERR(sqlite3_bind_int(prepared, index, constraints._##_id)); \
+    }
+
+    bind_text(artist)
+    bind_text(album)
+    bind_text(genre)
+    bind_text(year)
+
+#undef bind_text
+
+    vector<vector<pair<int, string>>> results;
+    int result;
+    while ((result = sqlite3_step(prepared)) == SQLITE_ROW)
+    {
+        results.emplace_back();
+        for (size_t i = 0, j = 0, n = columns.size(); i < n; i++)
+        {
+            int id;
+            if (columns[i] == "track" || columns[i] == "path")
+                id = -1;
+            else
+            {
+                id = sqlite3_column_int(prepared, j++);
+            }
+
+            string value = reinterpret_cast<const char*>(sqlite3_column_text(prepared, j++));
+            results.back().emplace_back(id, value);
+        }
+    }
+    if (result != SQLITE_DONE)
+    {
+        CHECKERR(result);
+    }
+
+    sqlite3_finalize(prepared);
+
+    return results;
+}
+
 vector<vector<pair<int,string>>> MusicDatabase::GetValues(const vector<string>& columns, const MusicAttributes& constraints) const
 {
     stringstream stmt;
@@ -148,7 +311,7 @@ vector<vector<pair<int,string>>> MusicDatabase::GetValues(const vector<string>& 
     {
         if (column != "title"
             && column != "track"
-            && column != "filename")
+            && column != "path")
         {
             joined_tables.insert(column);
         }
@@ -181,7 +344,7 @@ vector<vector<pair<int,string>>> MusicDatabase::GetValues(const vector<string>& 
 
     stmt << " WHERE " << join(where_clauses, " AND ") << ";";
 
-    DEBUG("GetTable: " << stmt.str());
+    DEBUG("GetValues(string): " << stmt.str());
 
     sqlite3_stmt *prepared;
     CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.str().c_str(), stmt.str().size(), &prepared, nullptr));
