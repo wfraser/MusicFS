@@ -310,8 +310,12 @@ void build_paths(
         case t::Year:   columns.push_back("year"); break;
 
         case t::Track:  columns.push_back("track"); break;
-        case t::Title:  columns.push_back("title"); break;
         case t::Extension: columns.push_back("path"); break;
+        case t::Title:
+            columns.push_back("title");
+            // Also add the path in case the title is empty.
+            columns.push_back("path");
+            break;
 
         case t::Literal:
         default:
@@ -338,33 +342,66 @@ void build_paths(
                 break;
 
             case t::Artist:
-                path += cols[j].second;
+                if (cols[j].second.empty())
+                    path += "(unknown artist)";
+                else
+                    path += cols[j].second;
                 constraints2.artist_id = cols[j].first;
                 j++;
                 break;
 
             case t::Album:
-                path += cols[j].second;
+                if (cols[j].second.empty())
+                    path += "(unknown album)";
+                else
+                    path += cols[j].second;
                 constraints2.album_id = cols[j].first;
                 j++;
                 break;
 
             case t::Genre:
-                path += cols[j].second;
+                if (cols[j].second.empty())
+                    path += "(unknown genre)";
+                else
+                    path += cols[j].second;
                 constraints2.genre_id = cols[j].first;
                 j++;
                 break;
 
             case t::Year:
-                path += cols[j].second;
+                if (cols[j].second.empty() || cols[j].second == "0")
+                    path += "____";
+                else
+                    path += cols[j].second;
                 constraints2.year_id = cols[j].first;
                 j++;
                 break;
 
             case t::Track:
-            case t::Title:
-                path += cols[j].second;
+                if (cols[j].second.empty() || cols[j].second == "0")
+                    path += "__";
+                else
+                {
+                    if (cols[j].second.size() == 1)
+                        path += '0';
+                    path += cols[j].second;
+                }
                 j++;
+                track_specified = true;
+                break;
+
+            case t::Title:
+                // This fetched the title as cols[j] and the path as cols[j+1].
+                if (cols[j].second.empty())
+                {
+                    //path += "(untitled)";
+                    string& filename = cols[j+1].second;
+                    path += filename.substr(filename.find_last_of('/')).substr(0, filename.find_last_of('.'));
+                }
+                else
+                    path += cols[j].second;
+                constraints2.track_id = cols[j].first;
+                j += 2;
                 track_specified = true;
                 break;
 
@@ -440,11 +477,7 @@ int main(int argc, char **argv)
 
     grovel(musicfs_opts.backing_fs, db);
 
-    cout << "computing paths";
-
-    db.ClearPaths();
-
-    cout << "...\n";
+    cout << "computing paths...\n";
 
     MusicAttributesById constraints = { -1, -1, -1, -1, -1 };
     build_paths(db, constraints, musicfs_opts.path_components, 0, "");
