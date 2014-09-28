@@ -1,19 +1,8 @@
 #pragma once
 
-struct MusicAttributes
-{
-    std::unique_ptr<std::string>
-        artist,
-        album,
-        genre,
-        title,
-        year,
-        track;
-};
-
 struct MusicAttributesById
 {
-    int artist_id, album_id, genre_id, year_id, track_id;
+    int artist_id, albumartist_id, album_id, genre_id, year_id, track_id;
 };
 
 struct sqlite3;
@@ -27,11 +16,6 @@ public:
     MusicDatabase(const MusicDatabase&) = delete;
     MusicDatabase& operator=(const MusicDatabase&) = delete;
     MusicDatabase(MusicDatabase&&) = delete;
-
-    std::vector<std::vector<std::pair<int, std::string>>> GetValues(
-        const std::vector<std::string>& columns,
-        const MusicAttributes& constraints
-        ) const;
 
     std::vector<std::vector<std::pair<int, std::string>>> GetValues(
         const std::vector<std::string>& columns,

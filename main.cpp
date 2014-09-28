@@ -22,7 +22,7 @@ bool musicfs_log_stderr = false;
 
 using namespace std;
         
-static const char *default_pattern = "%artist%/[%year%] %album%/%track% - %title%.%ext%";
+static const char *default_pattern = "%albumartist%/[%year%] %album%/%track% - %title%.%ext%";
 
 struct path_building_component
 {
@@ -30,6 +30,7 @@ struct path_building_component
     {
         Literal,
         Artist,
+        AlbumArtist,
         Album,
         Genre,
         Year,
@@ -68,6 +69,8 @@ void parse_pattern(vector<vector<path_building_component>>& path_components, con
                 t type = t::Literal;
                 if (buf == "artist")
                     type = t::Artist;
+                else if (buf == "albumartist")
+                    type = t::AlbumArtist;
                 else if (buf == "album")
                     type = t::Album;
                 else if (buf == "genre")
@@ -119,6 +122,7 @@ void parse_pattern(vector<vector<path_building_component>>& path_components, con
             string type;
             if (part.type == t::Literal) type = "literal: " + part.literal;
             else if (part.type == t::Artist) type = "artist";
+            else if (part.type == t::AlbumArtist) type = "albumartist";
             else if (part.type == t::Album) type = "album";
             else if (part.type == t::Genre) type = "genre";
             else if (part.type == t::Year) type = "year";
@@ -304,13 +308,14 @@ void build_paths(
     {
         switch (comp.type)
         {
-        case t::Artist: columns.push_back("artist"); break;
-        case t::Album:  columns.push_back("album"); break;
-        case t::Genre:  columns.push_back("genre"); break;
-        case t::Year:   columns.push_back("year"); break;
+        case t::Artist:         columns.push_back("artist"); break;
+        case t::AlbumArtist:    columns.push_back("albumartist"); break;
+        case t::Album:          columns.push_back("album"); break;
+        case t::Genre:          columns.push_back("genre"); break;
+        case t::Year:           columns.push_back("year"); break;
 
-        case t::Track:  columns.push_back("track"); break;
-        case t::Extension: columns.push_back("path"); break;
+        case t::Track:          columns.push_back("track"); break;
+        case t::Extension:      columns.push_back("path"); break;
         case t::Title:
             columns.push_back("title");
             // Also add the path in case the title is empty.
@@ -347,6 +352,15 @@ void build_paths(
                 else
                     path += cols[j].second;
                 constraints2.artist_id = cols[j].first;
+                j++;
+                break;
+
+            case t::AlbumArtist:
+                if (cols[j].second.empty())
+                    path += "(unknown artist)";
+                else
+                    path += cols[j].second;
+                constraints2.albumartist_id = cols[j].first;
                 j++;
                 break;
 
@@ -479,7 +493,7 @@ int main(int argc, char **argv)
 
     cout << "computing paths...\n";
 
-    MusicAttributesById constraints = { -1, -1, -1, -1, -1 };
+    MusicAttributesById constraints = { -1, -1, -1, -1, -1, -1 };
     build_paths(db, constraints, musicfs_opts.path_components, 0, "");
 
     db.EndHeavyWriting();
