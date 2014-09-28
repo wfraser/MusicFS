@@ -161,5 +161,7 @@ void grovel(const string& base_path, MusicDatabase& db)
 
     INFO("Groveled " << groveled_count << " new/updated tracks.");
 
+    INFO("Removing un-referenced artists, albums, genres, and years.");
+    // This also removes paths referencing these.
     db.CleanTables();
 }

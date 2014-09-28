@@ -31,39 +31,42 @@ using namespace std;
 
 static vector<string> s_tableStatements =
 {
-    "PRAGMA foreign_keys = ON;"
+    // ON DELETE RESTRICT: referenced table's rows can't be deleted if references to them exist.
+    // ON DELETE CASCADE: if referenced table's rows are deleted, deletes propogate to rows that reference them.
+
+    "PRAGMA foreign_keys = ON;",
     "CREATE TABLE IF NOT EXISTS artist ( id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL COLLATE NOCASE );",
     "CREATE TABLE IF NOT EXISTS album  ( id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL COLLATE NOCASE );",
     "CREATE TABLE IF NOT EXISTS genre  ( id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL COLLATE NOCASE );",
     "CREATE TABLE IF NOT EXISTS year   ( id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL COLLATE NOCASE );",
     "CREATE TABLE IF NOT EXISTS track ( "
-        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-        "artist_id INTEGER NOT NULL, "
-        "album_id INTEGER NOT NULL, "
-        "genre_id INTEGER NOT NULL, "
-        "year_id INTEGER NOT NULL, "
-        "name TEXT NOT NULL, "
-        "track INTEGER, "
-        "path TEXT NOT NULL, "
-        "mtime INTEGER NOT NULL, "
-        "FOREIGN KEY(artist_id) REFERENCES artist(id), "
-        "FOREIGN KEY(album_id) REFERENCES album(id), "
-        "FOREIGN KEY(genre_id) REFERENCES genre(id), "
-        "FOREIGN KEY(year_id) REFERENCES year(id) "
+        "id         INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "artist_id  INTEGER NOT NULL, "
+        "album_id   INTEGER NOT NULL, "
+        "genre_id   INTEGER NOT NULL, "
+        "year_id    INTEGER NOT NULL, "
+        "name       TEXT    NOT NULL, "
+        "track      INTEGER, "
+        "path       TEXT    NOT NULL, "
+        "mtime      INTEGER NOT NULL, "
+        "FOREIGN KEY(artist_id) REFERENCES artist(id)   ON DELETE RESTRICT, "
+        "FOREIGN KEY(album_id)  REFERENCES album(id)    ON DELETE RESTRICT, "
+        "FOREIGN KEY(genre_id)  REFERENCES genre(id)    ON DELETE RESTRICT, "
+        "FOREIGN KEY(year_id)   REFERENCES year(id)     ON DELETE RESTRICT "
         ");",
     "CREATE TABLE IF NOT EXISTS path ( "
-        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-        "path TEXT NOT NULL, "
-        "artist_id INTEGER, "
-        "album_id INTEGER, "
-        "genre_id INTEGER, "
-        "year_id INTEGER, "
-        "track_id INTEGER, "
-        "FOREIGN KEY(artist_id) REFERENCES artist(id), "
-        "FOREIGN KEY(album_id) REFERENCES album(id), "
-        "FOREIGN KEY(genre_id) REFERENCES genre(id), "
-        "FOREIGN KEY(year_id) REFERENCES year(id), "
-        "FOREIGN KEY(track_id) REFERENCES track(id) "
+        "id         INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "path       TEXT    NOT NULL UNIQUE ON CONFLICT IGNORE, "
+        "artist_id  INTEGER, "
+        "album_id   INTEGER, "
+        "genre_id   INTEGER, "
+        "year_id    INTEGER, "
+        "track_id   INTEGER, "
+        "FOREIGN KEY(artist_id) REFERENCES artist(id)   ON DELETE CASCADE, "
+        "FOREIGN KEY(album_id)  REFERENCES album(id)    ON DELETE CASCADE, "
+        "FOREIGN KEY(genre_id)  REFERENCES genre(id)    ON DELETE CASCADE, "
+        "FOREIGN KEY(year_id)   REFERENCES year(id)     ON DELETE CASCADE, "
+        "FOREIGN KEY(track_id)  REFERENCES track(id)    ON DELETE CASCADE "
         ");"
 };
 
