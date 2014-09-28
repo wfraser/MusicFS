@@ -11,6 +11,7 @@ public:
 
     std::string title() const;
     std::string artist() const;
+    std::string albumartist() const;
     std::string album() const;
     std::string comment() const;
     std::string genre() const;
