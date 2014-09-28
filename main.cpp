@@ -208,19 +208,51 @@ int musicfs_opendir(const char *path, fuse_file_info *ffi)
     auto constraints = new MusicAttributesById();
 
     // Here's the trick:
-    // To narrow the search space, we need to specify which constraints NEED to be null,
+    // To narrow the search space, we need to specify which properties NEED to be null,
     // based on what level in the directory tree we're at.
-    // Setting them to 0 specifies "must be null".
+    // Setting them to 0 in the constraints specifies "must be null".
 
-    // HACK HACK HACK FIXME
-    // Root directory is the slowest one (because it has to scan eeeeeverything)
-    // Special case it for now.
-    if ((strcmp(path, "/") == 0) && (musicfs.pattern == default_pattern))
+    // Count slashes to see what level in the tree we're at.
+    size_t level = 0;
+    for (size_t i = 1; path[i] != '\0'; i++)
     {
-        constraints->artist_id = 0;
-        constraints->album_id = 0;
-        constraints->year_id = 0;
-        constraints->track_id = 0;
+        if (path[i] == '/')
+            level++;
+    }
+
+    // Starting at the next level in the path pattern, any properties used to make that
+    // component need to be specified as null.
+    for (size_t i = level + 1, n = musicfs.path_components.size(); i < n; i++)
+    {
+        typedef path_building_component::Type t;
+        for (const path_building_component& component : musicfs.path_components[i])
+        {
+            switch (component.type)
+            {
+            case t::Literal:
+                break;
+            case t::Artist:
+                constraints->artist_id = 0;
+                break;
+            case t::AlbumArtist:
+                constraints->albumartist_id = 0;
+                break;
+            case t::Album:
+                constraints->album_id = 0;
+                break;
+            case t::Genre:
+                constraints->genre_id = 0;
+                break;
+            case t::Year:
+                constraints->year_id = 0;
+                break;
+            case t::Track:
+            case t::Title:
+            case t::Extension:
+                constraints->track_id = 0;
+                break;
+            }
+        }
     }
 
     bool found = (strcmp(path, "/") == 0) || musicfs.db->GetPathAttributes(path, *constraints);
