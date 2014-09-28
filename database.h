@@ -2,6 +2,10 @@
 
 struct MusicAttributesById
 {
+    MusicAttributesById()
+        : artist_id(-1), albumartist_id(-1), album_id(-1), genre_id(-1), year_id(-1), track_id(-1)
+    {};
+
     int artist_id, albumartist_id, album_id, genre_id, year_id, track_id;
 };
 
@@ -28,7 +32,9 @@ public:
 
     void ClearPaths();
     void AddPath(const std::string& path, const MusicAttributesById& constraints);
-
+    std::vector<std::pair<std::string, bool>> GetChildrenOfPath(const std::string& path, const MusicAttributesById& constraints) const;
+    std::string GetRealPath(const std::string& path) const;
+    bool GetPathAttributes(const std::string& path, MusicAttributesById& constraints) const;
     void BeginHeavyWriting();
     void EndHeavyWriting();
 

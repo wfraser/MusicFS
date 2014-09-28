@@ -140,8 +140,9 @@ struct musicfs_opts
     char *backing_fs;
     char *pattern;
     vector<vector<path_building_component>> path_components;
+    MusicDatabase *db;
 };
-static musicfs_opts musicfs_opts = {};
+static musicfs_opts musicfs = {};
 
 void usage()
 {
@@ -149,45 +150,132 @@ void usage()
     cout << "usage\n";
 }
 
+int stat_real_file(const char *path, struct stat *stbuf)
+{
+    string real_path = musicfs.backing_fs;
+    real_path += "/";
+    real_path += path;
+
+    if (-1 == stat(real_path.c_str(), stbuf))
+    {
+        PERROR(__FUNCTION__ << ": failure to stat real file: " << real_path);
+        return -errno;
+    }
+
+    // Remove write permissions.
+    stbuf->st_mode &= ~0222;
+
+    return 0;
+}
+
+void fake_directory_stat(struct stat *stbuf)
+{
+    stbuf->st_mode = S_IFDIR | 0700;
+    stbuf->st_uid  = getuid();
+    stbuf->st_gid  = getgid();
+    stbuf->st_atim = stbuf->st_mtim = stbuf->st_ctim = {0,123456789} /* todo, should use database's time */;
+}
+
 int musicfs_getattr(const char *path, struct stat *stbuf)
 {
     DEBUG("getattr " << path);
     if (strcmp(path, "/") == 0)
     {
-        stbuf->st_mode = S_IFDIR | 0700;
-        stbuf->st_uid  = getuid();
-        stbuf->st_gid  = getgid();
-        stbuf->st_atim = stbuf->st_mtim = stbuf->st_ctim = {0,123456789} /* todo, should use database's time */;
+        fake_directory_stat(stbuf);
         return 0;
 
-        //return stat(musicfs_opts.backing_fs, stbuf);
+        //return stat(musicfs.backing_fs, stbuf);
     }
-    return -EIO;
+    else
+    {
+        string real_path = musicfs.db->GetRealPath(path);
+        if (real_path.empty())
+        {
+            fake_directory_stat(stbuf);
+            return 0;
+        }
+        else
+        {
+            return stat_real_file(real_path.c_str(), stbuf);
+        }
+    }
 }
 
 int musicfs_opendir(const char *path, fuse_file_info *ffi)
 {
     DEBUG("opendir" << path);
 
-    if (strcmp(path, "/") == 0)
+    auto constraints = new MusicAttributesById();
+
+    // Here's the trick:
+    // To narrow the search space, we need to specify which constraints NEED to be null,
+    // based on what level in the directory tree we're at.
+    // Setting them to 0 specifies "must be null".
+
+    // HACK HACK HACK FIXME
+    // Root directory is the slowest one (because it has to scan eeeeeverything)
+    // Special case it for now.
+    if ((strcmp(path, "/") == 0) && (musicfs.pattern == default_pattern))
     {
-        return 0;
+        constraints->artist_id = 0;
+        constraints->album_id = 0;
+        constraints->year_id = 0;
+        constraints->track_id = 0;
     }
 
-    return -EIO;
+    bool found = (strcmp(path, "/") == 0) || musicfs.db->GetPathAttributes(path, *constraints);
+    if (!found)
+    {
+        return -ENOENT;
+    }
+    else
+    {
+        ffi->fh = reinterpret_cast<uint64_t>(constraints);
+        return 0;
+    }
 }
 
 int musicfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi)
 {
     DEBUG("readdir " << path);
 
-    if (strcmp(path, "/") == 0)
+    auto constraints = reinterpret_cast<MusicAttributesById*>(fi->fh);
+
+    vector<pair<string, bool>> entries = musicfs.db->GetChildrenOfPath(path, *constraints);
+
+    for (const pair<string, bool>& entry : entries)
     {
-        filler(buf, "lol", nullptr, 0);
-        return 0;
+        size_t path_len = strlen(path);
+        if (path_len > 1) path_len++;
+
+        string basename = entry.first.substr(path_len);
+        DEBUG("adding path: " << basename);
+
+        struct stat stbuf;
+        if (entry.second)
+        {
+            // If this is a file, go and stat it now to save syscalls later.
+            stat_real_file(entry.first.c_str(), &stbuf);
+        }
+        else
+        {
+            fake_directory_stat(&stbuf);
+        }
+
+        filler(buf, basename.c_str(), &stbuf, 0);
     }
-    
-    return -EIO;
+
+    return 0;
+}
+
+int musicfs_releasedir(const char *, struct fuse_file_info *fi)
+{
+    if (fi->fh != 0)
+    {
+        auto constraints = reinterpret_cast<MusicAttributesById*>(fi->fh);
+        delete constraints;
+    }
+    return 0;
 }
 
 static fuse_operations MusicFS_Opers = {};
@@ -197,6 +285,7 @@ void musicfs_init_fuse_operations()
     IMPL(getattr);
     IMPL(opendir);
     IMPL(readdir);
+    IMPL(releasedir);
 }
 
 enum
@@ -449,7 +538,7 @@ int main(int argc, char **argv)
 
     fuse_args args = FUSE_ARGS_INIT(argc, argv);
 
-    if (fuse_opt_parse(&args, &musicfs_opts, musicfs_opts_spec, musicfs_opt_proc) == -1)
+    if (fuse_opt_parse(&args, &musicfs, musicfs_opts_spec, musicfs_opt_proc) == -1)
     {
         cerr << "MusicFS: argument parsing failed.\n";
         return 1;
@@ -462,7 +551,7 @@ int main(int argc, char **argv)
         fuse_opt_add_arg(&args, nonopt_arguments[num_nonopt_args_read - 1]);
         if (num_nonopt_args_read == 2)
         {
-            musicfs_opts.backing_fs = nonopt_arguments[0];
+            musicfs.backing_fs = nonopt_arguments[0];
         }
     }
     else
@@ -474,12 +563,12 @@ int main(int argc, char **argv)
         return -1;
     }
 
-    if (musicfs_opts.pattern == nullptr)
+    if (musicfs.pattern == nullptr)
     {
-        musicfs_opts.pattern = const_cast<char*>(default_pattern);
+        musicfs.pattern = const_cast<char*>(default_pattern);
         INFO("No path pattern specified, using default: " << default_pattern);
     }
-    parse_pattern(musicfs_opts.path_components, musicfs_opts.pattern);
+    parse_pattern(musicfs.path_components, musicfs.pattern);
 
     cout << "opening database...\n";
 
@@ -489,12 +578,12 @@ int main(int argc, char **argv)
 
     cout << "groveling music...\n";
 
-    grovel(musicfs_opts.backing_fs, db);
+    grovel(musicfs.backing_fs, db);
 
     cout << "computing paths...\n";
 
-    MusicAttributesById constraints = { -1, -1, -1, -1, -1, -1 };
-    build_paths(db, constraints, musicfs_opts.path_components, 0, "");
+    MusicAttributesById constraints;
+    build_paths(db, constraints, musicfs.path_components, 0, "");
 
     db.EndHeavyWriting();
 
@@ -518,6 +607,8 @@ int main(int argc, char **argv)
 #endif
 
     cout << "ready to go!\n";
+
+    musicfs.db = &db;
 
     fuse_main(args.argc, args.argv, &MusicFS_Opers, nullptr);
 
