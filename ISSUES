@@ -1,0 +1,12 @@
+1. All paths are built on startup, which isn't necessary.
+    Only tracks just groveled need to have paths built.
+
+2. Listing directory contents for the root is very slow.
+    To narrow the path search space, constraints need to be specified depending on the level in the directory tree.
+    There's a hack in there for the default pattern, but that's it.
+
+3. albumartist is only supported for MP3 and FLAC.
+    Need to determine which, if any, other formats also can have support added.
+
+4. Need to add logic to present only the best file format when multiple are available for a given track.
+    Right now, all are presented side-by-side.
