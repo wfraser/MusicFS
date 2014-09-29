@@ -13,7 +13,7 @@ extern int musicfs_log_level;
 extern bool musicfs_log_stderr;
 #include "logging.h"
 
-#include "MusicInfo.h"
+#include "musicinfo.h"
 #include "database.h"
 #include "groveler.h"
 

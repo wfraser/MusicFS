@@ -15,7 +15,7 @@ extern bool musicfs_log_stderr;
 #include "logging.h"
 
 #include "util.h"
-#include "MusicInfo.h"
+#include "musicinfo.h"
 #include "database.h"
 
 using namespace std;
@@ -49,6 +49,7 @@ static vector<string> s_tableStatements =
         "year_id        INTEGER NOT NULL, "
         "name           TEXT    NOT NULL, "
         "track          INTEGER, "
+        "disc           INTEGER, "
         "path           TEXT    NOT NULL, "
         "mtime          INTEGER NOT NULL, "
         "FOREIGN KEY(artist_id)      REFERENCES artist(id)  ON DELETE RESTRICT, "
@@ -400,6 +401,10 @@ vector<vector<pair<int,string>>> MusicDatabase::GetValues(const vector<string>& 
         {
             stmt << "track.track ";
         }
+        else if (columns[i] == "disc")
+        {
+            stmt << "track.disc ";
+        }
         else if (columns[i] == "path")
         {
             stmt << "track.path ";
@@ -426,6 +431,7 @@ vector<vector<pair<int,string>>> MusicDatabase::GetValues(const vector<string>& 
         }
         else if (column != "title"
             && column != "track"
+            && column != "disc"
             && column != "path")
         {
             joined_tables.insert(column);
@@ -485,7 +491,7 @@ vector<vector<pair<int,string>>> MusicDatabase::GetValues(const vector<string>& 
         for (size_t i = 0, j = 0, n = columns.size(); i < n; i++)
         {
             int id;
-            if (columns[i] == "track" || columns[i] == "path")
+            if (columns[i] == "track" || columns[i] == "disc" || columns[i] == "path")
                 id = -1;
             else
             {
@@ -574,8 +580,8 @@ void MusicDatabase::AddTrack(const MusicInfo& attributes, string path, time_t mt
         AddRow("year", year, &yearId);
     }
 
-    string trackStmt = "INSERT INTO track (artist_id, albumartist_id, album_id, genre_id, year_id, name, track, path, mtime) "
-        "VALUES(?,?,?,?,?,?,?,?,?);";
+    string trackStmt = "INSERT INTO track (artist_id, albumartist_id, album_id, genre_id, year_id, name, track, disc, path, mtime) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?);";
     sqlite3_stmt *prepared;
     CHECKERR(sqlite3_prepare_v2(m_dbHandle, trackStmt.c_str(), trackStmt.size(), &prepared, nullptr));
 
@@ -588,8 +594,9 @@ void MusicDatabase::AddTrack(const MusicInfo& attributes, string path, time_t mt
     CHECKERR(sqlite3_bind_int(prepared, 5, yearId));
     CHECKERR(sqlite3_bind_text(prepared, 6, title.c_str(), title.size(), nullptr));
     CHECKERR(sqlite3_bind_int(prepared, 7, attributes.track()));
-    CHECKERR(sqlite3_bind_text(prepared, 8, path.c_str(), path.size(), nullptr));
-    CHECKERR(sqlite3_bind_int(prepared, 9, mtime));
+    CHECKERR(sqlite3_bind_int(prepared, 8, attributes.disc()));
+    CHECKERR(sqlite3_bind_text(prepared, 9, path.c_str(), path.size(), nullptr));
+    CHECKERR(sqlite3_bind_int(prepared, 10, mtime));
 
     int result = sqlite3_step(prepared);
     if (result != SQLITE_DONE)

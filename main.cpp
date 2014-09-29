@@ -16,7 +16,7 @@ bool musicfs_log_stderr = false;
 #include "logging.h"
 
 #include "util.h"
-#include "MusicInfo.h"
+#include "musicinfo.h"
 #include "database.h"
 #include "groveler.h"
 

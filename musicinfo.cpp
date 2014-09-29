@@ -14,7 +14,7 @@ extern bool musicfs_log_stderr;
 #define MUSICFS_LOG_COMPONENT "MusicInfo"
 #include "logging.h"
 
-#include "MusicInfo.h"
+#include "musicinfo.h"
 
 using namespace std;
 
