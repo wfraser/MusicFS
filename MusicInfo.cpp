@@ -1,4 +1,5 @@
 #include <typeinfo>
+#include <memory>
 
 #include <strings.h>
 
@@ -46,25 +47,41 @@ STRMETHOD(genre)
 INTMETHOD(year)
 INTMETHOD(track)
 
-string MusicInfo::albumartist() const
+unique_ptr<TagLib::File> FileSpecialized(const string& path)
 {
-    string path = m_fileRef.file()->name();
     string ext = path.substr(path.find_last_of('.') + 1);
-
-    string val;
     if (strcasecmp(ext.c_str(), "flac") == 0)
     {
-        TagLib::FLAC::File file(path.c_str());
-        val = file.tag()->properties()["ALBUMARTIST"].toString().to8Bit(true);
+        return make_unique<TagLib::FLAC::File>(path.c_str());
     }
     else if (strcasecmp(ext.c_str(), "mp3") == 0)
     {
-        TagLib::MPEG::File file(path.c_str());
-        val = file.ID3v2Tag()->properties()["ALBUMARTIST"].toString().to8Bit(true);
+        return make_unique<TagLib::MPEG::File>(path.c_str());
+    }
+    else
+    {
+        return nullptr;
     }
     //TODO: implement this for other types
     // See my TagLib mailing list thread here:
     // http://mail.kde.org/pipermail/taglib-devel/2014-September/002700.html
+}
+
+string MusicInfo::albumartist() const
+{
+    string val = property("ALBUMARTIST");
+    if (val.empty())
+    {
+        DEBUG("No ALBUMARTIST for file " << m_fileRef.file()->name());
+        return artist();
+    }
+    return val;
+    
+#if 0
+    string path = m_fileRef.file()->name();
+    unique_ptr<TagLib::File> file = FileSpecialized(path);
+
+    string val = (file == nullptr) ? "" : file->properties()["ALBUMARTIST"].toString().to8Bit(true);
         
     if (!val.empty())
     {
@@ -75,11 +92,35 @@ string MusicInfo::albumartist() const
         DEBUG("No ALBUMARTIST in tag for file " << path);
         return artist();
     }
+#endif
+}
+
+unsigned int MusicInfo::disc() const
+{
+    string val = property("DISCNUMBER");
+    return atoi(val.c_str());
+
+#if 0
+    string path = m_fileRef.file()->name();
+    unique_ptr<TagLib::File> file = FileSpecialized(path);
+    
+    for (const auto& p : file->properties())
+    {
+        cout << p.first << "/" << p.second << endl;
+    }
+    
+    return file->properties()["DISCNUMBER"].toString().toInt();
+#endif
 }
 
 string MusicInfo::property(const string& name) const
 {
-    return m_fileRef.tag()->properties()[name].toString().to8Bit(true);
+    for (const auto& p : m_fileRef.file()->properties())
+    {
+        DEBUG(p.first << "/" << p.second);
+    }
+
+    return m_fileRef.file()->properties()[name].toString().to8Bit(true);
 }
 
 string MusicInfo::extension() const
