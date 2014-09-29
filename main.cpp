@@ -536,6 +536,20 @@ string sanitize_path(const string& s)
     return result;
 }
 
+#if 0
+void build_paths2(
+    MusicDatabase& db,
+    const vector<int>& trackIds,
+    const vector<vector<path_building_component>>& path_components
+    )
+{
+    for (int trackId : trackIds)
+    {
+
+    }
+}
+#endif
+
 void build_paths(
     MusicDatabase& db,
     const MusicAttributesById& constraints,
@@ -653,7 +667,9 @@ void build_paths(
                 {
                     //path += "(untitled)";
                     string& filename = cols[j+1].second;
-                    path += filename.substr(filename.find_last_of('/')).substr(0, filename.find_last_of('.'));
+                    auto slash = filename.find_last_of('/');
+                    auto dot = filename.find_last_of('.');
+                    path += filename.substr(slash + 1, dot - slash - 1);
                 }
                 else
                     path += sanitize_path(cols[j].second);
