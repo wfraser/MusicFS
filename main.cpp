@@ -170,10 +170,41 @@ int stat_real_file(const char *path, struct stat *stbuf)
 
 void fake_directory_stat(struct stat *stbuf)
 {
-    stbuf->st_mode = S_IFDIR | 0700;
+    stbuf->st_mode = S_IFDIR | 0555;
     stbuf->st_uid  = getuid();
     stbuf->st_gid  = getgid();
-    stbuf->st_atim = stbuf->st_mtim = stbuf->st_ctim = {0,123456789} /* todo, should use database's time */;
+
+    // TODO should use database's time.
+    stbuf->st_atim = stbuf->st_mtim = stbuf->st_ctim = {0,123456789};
+
+    // This value needs to be at least 1.
+    // The actual value doesn't seem to matter much, and is expensive to compute.
+    stbuf->st_nlink = 1;
+}
+
+int musicfs_access(const char *path, int mode)
+{
+    DEBUG("access (" << mode << ") " << path);
+
+    if (strcmp(path, "/") != 0 && !musicfs.db->PathExists(path))
+        return -ENOENT;
+
+    // Writing is never OK.
+    if (mode & W_OK)
+        return -EACCES;
+
+    string partialRealPath = musicfs.db->GetRealPath(path);
+    if (partialRealPath.empty())
+    {
+        return 0;
+    }
+    else
+    {
+        if (mode & X_OK)
+            return -EACCES;
+        else
+            return 0;
+    }
 }
 
 int musicfs_getattr(const char *path, struct stat *stbuf)
@@ -183,20 +214,21 @@ int musicfs_getattr(const char *path, struct stat *stbuf)
     {
         fake_directory_stat(stbuf);
         return 0;
-
-        //return stat(musicfs.backing_fs, stbuf);
     }
     else
     {
-        string real_path = musicfs.db->GetRealPath(path);
-        if (real_path.empty())
+        if (!musicfs.db->PathExists(path))
+            return -ENOENT;
+
+        string partialRealPath = musicfs.db->GetRealPath(path);
+        if (partialRealPath.empty())
         {
             fake_directory_stat(stbuf);
             return 0;
         }
         else
         {
-            return stat_real_file(real_path.c_str(), stbuf);
+            return stat_real_file(partialRealPath.c_str(), stbuf);
         }
     }
 }
@@ -300,8 +332,10 @@ int musicfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t o
     return 0;
 }
 
-int musicfs_releasedir(const char *, struct fuse_file_info *fi)
+int musicfs_releasedir(const char *path, struct fuse_file_info *fi)
 {
+    DEBUG("releasedir " << path);
+
     if (fi->fh != 0)
     {
         auto constraints = reinterpret_cast<MusicAttributesById*>(fi->fh);
@@ -310,14 +344,74 @@ int musicfs_releasedir(const char *, struct fuse_file_info *fi)
     return 0;
 }
 
+int musicfs_open(const char *path, struct fuse_file_info *fi)
+{
+    DEBUG("open " << path);
+
+    //TODO: check fi->flags ?
+
+    string partialRealPath = musicfs.db->GetRealPath(path);
+    if (partialRealPath.empty())
+    {
+        return -ENOENT;
+    }
+
+    string realPath = musicfs.backing_fs;
+    realPath += partialRealPath;
+    int fd = open(realPath.c_str(), fi->flags);
+    if (fd == -1)
+    {
+        PERROR("open");
+        return -errno;
+    }
+
+    fi->fh = fd;
+
+    return 0;
+}
+
+int musicfs_read(const char *path, char *buf, size_t buf_size, off_t offset, struct fuse_file_info *fi)
+{
+    DEBUG("read " << buf_size << "@" << offset << " " << path);
+
+    ssize_t r = pread(fi->fh, buf, buf_size, offset);
+    if (r == -1)
+    {
+        PERROR("read");
+        return -errno;
+    }
+    else if (r != buf_size)
+    {
+        DEBUG("fewer bytes read than requestd");
+    }
+    return r;
+}
+
+int musicfs_release(const char *path, struct fuse_file_info *fi)
+{
+    DEBUG("release " << path);
+
+    int result = close(fi->fh);
+    if (result == -1)
+    {
+        PERROR("close");
+        return -errno;
+    }
+    return 0;
+}
+
 static fuse_operations MusicFS_Opers = {};
 void musicfs_init_fuse_operations()
 {
 #define IMPL(_func) MusicFS_Opers._func = musicfs_##_func
+    IMPL(access);
     IMPL(getattr);
     IMPL(opendir);
     IMPL(readdir);
     IMPL(releasedir);
+    IMPL(open);
+    IMPL(read);
+    IMPL(release);
 }
 
 enum
@@ -414,6 +508,34 @@ int musicfs_opt_proc(void *data, const char *arg, int key,
     return 0;
 }
 
+string sanitize_path(const string& s)
+{
+    string result;
+    for (const char& c : s)
+    {
+        switch (c)
+        {
+        // This is the set of restricted path characters used by Windows.
+        // Unix only forbids '/'.
+        // Let's play nice here and use Windows' set.
+        case '\\':
+        case '/':
+        case ':':
+        case '*':
+        case '?':
+        case '"':
+        case '<':
+        case '>':
+        case '|':
+            result.push_back('_');
+            break;
+        default:
+            result.push_back(c);
+        }
+    }
+    return result;
+}
+
 void build_paths(
     MusicDatabase& db,
     const MusicAttributesById& constraints,
@@ -471,7 +593,7 @@ void build_paths(
                 if (cols[j].second.empty())
                     path += "(unknown artist)";
                 else
-                    path += cols[j].second;
+                    path += sanitize_path(cols[j].second);
                 constraints2.artist_id = cols[j].first;
                 j++;
                 break;
@@ -480,7 +602,7 @@ void build_paths(
                 if (cols[j].second.empty())
                     path += "(unknown artist)";
                 else
-                    path += cols[j].second;
+                    path += sanitize_path(cols[j].second);
                 constraints2.albumartist_id = cols[j].first;
                 j++;
                 break;
@@ -489,7 +611,7 @@ void build_paths(
                 if (cols[j].second.empty())
                     path += "(unknown album)";
                 else
-                    path += cols[j].second;
+                    path += sanitize_path(cols[j].second);
                 constraints2.album_id = cols[j].first;
                 j++;
                 break;
@@ -498,7 +620,7 @@ void build_paths(
                 if (cols[j].second.empty())
                     path += "(unknown genre)";
                 else
-                    path += cols[j].second;
+                    path += sanitize_path(cols[j].second);
                 constraints2.genre_id = cols[j].first;
                 j++;
                 break;
@@ -534,7 +656,7 @@ void build_paths(
                     path += filename.substr(filename.find_last_of('/')).substr(0, filename.find_last_of('.'));
                 }
                 else
-                    path += cols[j].second;
+                    path += sanitize_path(cols[j].second);
                 constraints2.track_id = cols[j].first;
                 j += 2;
                 track_specified = true;

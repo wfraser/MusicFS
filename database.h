@@ -31,6 +31,7 @@ public:
     std::vector<std::tuple<int, time_t, std::string>> GetTracks() const;
 
     void ClearPaths();
+    bool PathExists(const std::string& path) const;
     void AddPath(const std::string& path, const MusicAttributesById& constraints);
     std::vector<std::pair<std::string, bool>> GetChildrenOfPath(const std::string& path, const MusicAttributesById& constraints) const;
     std::string GetRealPath(const std::string& path) const;

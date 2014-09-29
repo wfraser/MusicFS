@@ -173,6 +173,25 @@ void MusicDatabase::ClearPaths()
         "Error clearing out path table");
 }
 
+bool MusicDatabase::PathExists(const std::string& path) const
+{
+    string stmt = "SELECT NULL FROM path WHERE path.path = ?;";
+
+    sqlite3_stmt *prepared;
+    CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
+    CHECKERR(sqlite3_bind_text(prepared, 1, path.c_str(), path.size(), nullptr));
+
+    bool found = false;
+    int result = sqlite3_step(prepared);
+    if (result == SQLITE_ROW)
+        found = true;
+    else if (result != SQLITE_DONE)
+        CHECKERR(result);
+
+    sqlite3_finalize(prepared);
+    return found;
+}
+
 void MusicDatabase::AddPath(const std::string& path, const MusicAttributesById& constraints)
 {
     string stmt = "INSERT INTO path (path, artist_id, albumartist_id, album_id, genre_id, year_id, track_id) "
