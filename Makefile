@@ -16,5 +16,8 @@ OBJS=main.o musicinfo.o database.o groveler.o
 musicfs: $(OBJS)
 	$(CXX) $(OBJS) $(LFLAGS) -o musicfs
 
+tag: tag.cpp
+	$(CXX) tag.cpp $(CXXFLAGS) $(LFLAGS) -o tag
+
 clean:
 	rm -f *.o musicfs
