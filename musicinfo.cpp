@@ -76,50 +76,15 @@ string MusicInfo::albumartist() const
         return artist();
     }
     return val;
-    
-#if 0
-    string path = m_fileRef.file()->name();
-    unique_ptr<TagLib::File> file = FileSpecialized(path);
-
-    string val = (file == nullptr) ? "" : file->properties()["ALBUMARTIST"].toString().to8Bit(true);
-        
-    if (!val.empty())
-    {
-        return val;
-    }
-    else
-    {
-        DEBUG("No ALBUMARTIST in tag for file " << path);
-        return artist();
-    }
-#endif
 }
 
-unsigned int MusicInfo::disc() const
+string MusicInfo::disc() const
 {
-    string val = property("DISCNUMBER");
-    return atoi(val.c_str());
-
-#if 0
-    string path = m_fileRef.file()->name();
-    unique_ptr<TagLib::File> file = FileSpecialized(path);
-    
-    for (const auto& p : file->properties())
-    {
-        cout << p.first << "/" << p.second << endl;
-    }
-    
-    return file->properties()["DISCNUMBER"].toString().toInt();
-#endif
+    return property("DISCNUMBER");
 }
 
 string MusicInfo::property(const string& name) const
 {
-    for (const auto& p : m_fileRef.file()->properties())
-    {
-        DEBUG(p.first << "/" << p.second);
-    }
-
     return m_fileRef.file()->properties()[name].toString().to8Bit(true);
 }
 

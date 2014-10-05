@@ -20,7 +20,7 @@ public:
     
     std::string extension() const;
     std::string albumartist() const;
-    unsigned int disc() const;
+    std::string disc() const;
 
 private:
     const TagLib::FileRef m_fileRef;
