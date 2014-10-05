@@ -49,7 +49,7 @@ static vector<string> s_tableStatements =
         "year_id        INTEGER NOT NULL, "
         "name           TEXT    NOT NULL, "
         "track          INTEGER, "
-        "disc           INTEGER, "
+        "disc           TEXT, "
         "path           TEXT    NOT NULL, "
         "mtime          INTEGER NOT NULL, "
         "FOREIGN KEY(artist_id)      REFERENCES artist(id)  ON DELETE RESTRICT, "
@@ -217,6 +217,15 @@ void MusicDatabase::AddPath(const std::string& path, const MusicAttributesById& 
     bind_int(7, constraints.track_id);
 
 #undef bind_int
+
+    DEBUG(stmt);
+    DEBUG("path:        " << path);
+    DEBUG("artist:      " << constraints.artist_id);
+    DEBUG("albumartist: " << constraints.albumartist_id);
+    DEBUG("album:       " << constraints.album_id);
+    DEBUG("genre:       " << constraints.genre_id);
+    DEBUG("year:        " << constraints.year_id);
+    DEBUG("track:       " << constraints.track_id);
 
     int result = sqlite3_step(prepared);
     if (result != SQLITE_DONE)
@@ -492,13 +501,20 @@ vector<vector<pair<int,string>>> MusicDatabase::GetValues(const vector<string>& 
         {
             int id;
             if (columns[i] == "track" || columns[i] == "disc" || columns[i] == "path")
+            {
                 id = -1;
+            }
             else
             {
                 id = sqlite3_column_int(prepared, j++);
             }
 
-            string value = reinterpret_cast<const char*>(sqlite3_column_text(prepared, j++));
+            string value;
+            if (SQLITE_NULL != sqlite3_column_type(prepared, j))
+            {
+                value = reinterpret_cast<const char*>(sqlite3_column_text(prepared, j));
+            }
+            j++;
             results.back().emplace_back(id, value);
         }
     }
@@ -594,7 +610,13 @@ void MusicDatabase::AddTrack(const MusicInfo& attributes, string path, time_t mt
     CHECKERR(sqlite3_bind_int(prepared, 5, yearId));
     CHECKERR(sqlite3_bind_text(prepared, 6, title.c_str(), title.size(), nullptr));
     CHECKERR(sqlite3_bind_int(prepared, 7, attributes.track()));
-    CHECKERR(sqlite3_bind_int(prepared, 8, attributes.disc()));
+
+    string disc = attributes.disc();
+    if (disc.empty())
+        CHECKERR(sqlite3_bind_null(prepared, 8));
+    else
+        CHECKERR(sqlite3_bind_text(prepared, 8, disc.c_str(), disc.size(), nullptr));
+
     CHECKERR(sqlite3_bind_text(prepared, 9, path.c_str(), path.size(), nullptr));
     CHECKERR(sqlite3_bind_int(prepared, 10, mtime));
 
