@@ -571,12 +571,16 @@ void build_paths(
         case t::Genre:          columns.push_back("genre"); break;
         case t::Year:           columns.push_back("year"); break;
 
-        case t::Track:          columns.push_back("track"); break;
         case t::Extension:      columns.push_back("path"); break;
         case t::Title:
             columns.push_back("title");
             // Also add the path in case the title is empty.
             columns.push_back("path");
+            break;
+        
+        case t::Track:
+            columns.push_back("track");
+            columns.push_back("disc");
             break;
 
         case t::Literal:
@@ -585,6 +589,7 @@ void build_paths(
         }
     }
 
+    DEBUG("requesting cols from db: " << join(columns, ","));
     vector<vector<pair<int, string>>> values = db.GetValues(columns, constraints);
 
     for (vector<pair<int, string>> cols : values)
@@ -648,7 +653,8 @@ void build_paths(
                 j++;
                 break;
 
-            case t::Track:
+            case t::Track: {
+                // This fetched the track number as cols[j] and the disc as cols[j+1].
                 if (cols[j].second.empty() || cols[j].second == "0")
                     path += "__";
                 else
@@ -657,8 +663,32 @@ void build_paths(
                         path += '0';
                     path += cols[j].second;
                 }
-                j++;
+                
+                string& disc = cols[j+1].second;
+                if (!disc.empty())
+                {
+                    auto pos = disc.find('/');
+                    bool showDisc = false;
+                    if (pos == string::npos)
+                    {
+                        DEBUG("disc number doesn't have a slash: \"" << disc << "\"");
+                        showDisc = (atoi(disc.c_str()) > 1);
+                    }
+                    else
+                    {
+                        string totalDiscs = disc.substr(pos + 1);
+                        showDisc = (atoi(totalDiscs.c_str()) > 1);
+                    }
+
+                    if (showDisc)
+                    {
+                        path = disc.substr(0, pos - 1) + "." + path;
+                    }
+                }
+
+                j += 2;
                 track_specified = true;
+            }
                 break;
 
             case t::Title:
