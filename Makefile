@@ -11,7 +11,7 @@ LFLAGS+=-Wall -lstdc++ -lm -ltag -lfuse -lsqlite3
 
 all: musicfs
 
-OBJS=main.o musicinfo.o database.o groveler.o
+OBJS=main.o musicinfo.o database.o groveler.o path_pattern.o
 
 musicfs: $(OBJS)
 	$(CXX) $(OBJS) $(LFLAGS) -o musicfs

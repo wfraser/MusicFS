@@ -1,5 +1,8 @@
 #pragma once
 
+extern int musicfs_log_level;
+extern bool musicfs_log_stderr;
+
 #include <string.h> // for strerror
 #include <errno.h> // for errno
 

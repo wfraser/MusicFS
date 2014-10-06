@@ -2,16 +2,18 @@
 #include <string>
 #include <vector>
 
+#include "logging.h"
+#include "database.h"
 #include "path_pattern.h"
 
 using namespace std;
 
 const char *default_pattern = "%albumartist%/[%year%] %album%/%track% - %title%.%ext%";
 
-void parse_pattern(vector<vector<path_building_component>>& path_components, const char *pattern)
+PathPattern::PathPattern(const char *pattern)
 {
-    typedef path_building_component::Type t;
-    path_components.emplace_back();
+    typedef Component::Type t;
+    m_components.emplace_back();
     string buf;
     bool in_placeholder = false;
     for (size_t i = 0; pattern[i] != '\0'; i++)
@@ -45,13 +47,13 @@ void parse_pattern(vector<vector<path_building_component>>& path_components, con
                 }
                 in_placeholder = false;
                 buf.clear();
-                path_components.back().emplace_back(type);
+                m_components.back().emplace_back(type);
             }
             else
             {
                 if (!buf.empty())
                 {
-                    path_components.back().emplace_back(buf);
+                    m_components.back().emplace_back(buf);
                     buf.clear();
                 }
                 in_placeholder = true;
@@ -59,7 +61,7 @@ void parse_pattern(vector<vector<path_building_component>>& path_components, con
         }
         else if (c == '/')
         {
-            path_components.emplace_back();
+            m_components.emplace_back();
         }
         else
         {
@@ -67,10 +69,9 @@ void parse_pattern(vector<vector<path_building_component>>& path_components, con
         }
     }
 
-#if 0
     // Debug:
     DEBUG("parsed path pattern:");
-    for (const auto& component : path_components)
+    for (const auto& component : m_components)
     {
         DEBUG("component:");
         for (const auto& part : component)
@@ -89,5 +90,147 @@ void parse_pattern(vector<vector<path_building_component>>& path_components, con
             DEBUG("\tpart:" << type);
         }
     }
-#endif
 }
+
+size_t PathPattern::GetNumPathLevels() const
+{
+    return m_components.size();
+}
+
+string sanitize_path(const string& s)
+{
+    string result;
+    for (const char& c : s)
+    {
+        switch (c)
+        {
+        // This is the set of restricted path characters used by Windows.
+        // Unix only forbids '/'.
+        // Let's play nice here and use Windows' set.
+        case '\\':
+        case '/':
+        case ':':
+        case '*':
+        case '?':
+        case '"':
+        case '<':
+        case '>':
+        case '|':
+            result.push_back('_');
+            break;
+        default:
+            result.push_back(c);
+        }
+    }
+    while (result.size() > 0 && result.back() == '.')
+    {
+        // Windows doesn't like paths that end in a dot.
+        result.pop_back();
+    }
+    if (result.size() == 0)
+    {
+        // The path should have at least something in it.
+        result.push_back('_');
+    }
+
+    // Note: Windows also doesn't like paths that end in whitespace,
+    // but MusicInfo should have taken care of that by trimming tag contents.
+
+    return result;
+}
+
+void PathPattern::AppendPathComponent(string& path, const MusicAttributes& attrs, size_t level) const
+{
+    if (level >= m_components.size())
+    {
+        ERROR("invalid level passed to " << __FUNCTION__ << ": " << level << " >= " << m_components.size());
+        throw new exception();
+    }
+
+    typedef Component::Type t;
+
+    path.push_back('/');
+
+    for (const Component& comp : m_components[level])
+    {
+        switch (comp.type)
+        {
+        case t::Artist:
+            if (attrs.Artist.empty())
+                path += "(unknown artist)";
+            else
+                path += sanitize_path(attrs.Artist);
+            break;
+        case t::AlbumArtist:
+            if (attrs.AlbumArtist.empty())
+                path += "(unknown artist)";
+            else
+                path += sanitize_path(attrs.AlbumArtist);
+            break;
+        case t::Album:
+            if (attrs.Album.empty())
+                path += "(unknown album)";
+            else
+                path += sanitize_path(attrs.Album);
+            break;
+        case t::Genre:
+            if (attrs.Genre.empty())
+                path += "(unknown genre)";
+            else
+                path += sanitize_path(attrs.Genre);
+            break;
+        case t::Year:
+            if (attrs.Year.empty())
+                path += "____";
+            else
+                path += attrs.Year;
+            break;
+        case t::Extension:
+            path += attrs.Path.substr(attrs.Path.find_last_of('.') + 1);
+            break;
+        case t::Title:
+            if (attrs.Title.empty())
+            {
+                auto slash = attrs.Path.find_last_of('/');
+                auto dot = attrs.Path.find_last_of('.');
+                path += attrs.Path.substr(slash + 1, dot - slash - 1);
+            }
+            else
+                path += sanitize_path(attrs.Title);
+            break;
+        case t::Track:
+            if (attrs.Track.empty())
+                path += "__";
+            else
+            {
+                auto pos = attrs.Disc.find('/');
+                bool showDisc = false;
+                if (pos == string::npos)
+                {
+                    showDisc = (atoi(attrs.Disc.c_str()) > 1);
+                }
+                else
+                {
+                    showDisc = (atoi(attrs.Disc.c_str() + pos + 1) > 1);
+                }
+
+                if (showDisc)
+                {
+                    path += attrs.Disc.substr(0, pos) + ".";
+                }
+
+                if (attrs.Track.size() == 1)
+                    path += "0";
+                path += attrs.Track;
+            }
+            break;
+
+        case t::Literal:
+            path += comp.literal;
+            break;
+        } // switch
+    } // for comp
+
+    // No return; path was modified in-place.
+}
+

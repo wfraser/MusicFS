@@ -2,6 +2,7 @@
 #include <memory>
 #include <vector>
 #include <deque>
+#include <unordered_map>
 
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -9,17 +10,14 @@
 #include <errno.h>
 
 #define MUSICFS_LOG_SUBSYS "Groveler"
-extern int musicfs_log_level;
-extern bool musicfs_log_stderr;
 #include "logging.h"
 
 #include "musicinfo.h"
 #include "database.h"
+#include "path_pattern.h"
 #include "groveler.h"
 
 using namespace std;
-
-//static vector<string> s_groveledExtensions = { "mp3", "flac", "ogg" };
 
 vector<int> grovel(const string& base_path, MusicDatabase& db)
 {
@@ -74,9 +72,11 @@ vector<int> grovel(const string& base_path, MusicDatabase& db)
         closedir(dir);
     }
 
-    INFO("Found " << files.size() << " files in " << directory_count << " directories.");
+    INFO("Found " << files.size() << " files "
+        "in " << directory_count << " directories.");
 
-    // Next, go through the DB and remove any tracks for which there are no files or their file is unchanged since last grovel.
+    // Next, go through the DB and remove any tracks for which there are no
+    // files or their file is unchanged since last grovel.
 
     INFO("Checking database freshness...");
 
@@ -165,9 +165,47 @@ vector<int> grovel(const string& base_path, MusicDatabase& db)
 
     INFO("Groveled " << groveled_count << " new/updated tracks.");
 
-    INFO("Removing un-referenced artists, albums, genres, and years.");
-    // This also removes paths referencing these.
+    INFO("Removing un-referenced artists, albums, genres, and folders.");
+    
     db.CleanTables();
+    db.CleanPaths();
 
     return groveled_ids;
 }
+
+void build_paths(
+    MusicDatabase& db,
+    const PathPattern& pathPattern,
+    const vector<int>& track_ids
+    )
+{
+    unordered_map<string, int> paths;
+    size_t num_path_levels = pathPattern.GetNumPathLevels();
+
+    for (int track_id : track_ids)
+    {
+        MusicAttributes attrs;
+        db.GetAttributes(track_id, attrs);
+
+        int parent_id = 0;
+        string path;
+
+        for (size_t level = 0; level < num_path_levels; level++)
+        {
+            pathPattern.AppendPathComponent(path, attrs, level);
+            
+            auto pos = paths.find(path);
+            if (pos == paths.end())
+            {
+                DEBUG("adding path: " << path);
+                parent_id = db.AddPath(path, parent_id, (level == num_path_levels - 1) ? track_id : 0);
+                paths.emplace(path, parent_id);
+            }
+            else
+            {
+                parent_id = pos->second;
+            }
+        }
+    }
+}
+

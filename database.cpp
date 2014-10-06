@@ -10,8 +10,6 @@
 #include <sqlite3.h>
 
 #define MUSICFS_LOG_SUBSYS "Database"
-extern int musicfs_log_level;
-extern bool musicfs_log_stderr;
 #include "logging.h"
 
 #include "util.h"
@@ -442,7 +440,6 @@ void MusicDatabase::AddTrack(const MusicInfo& attributes, string path, time_t mt
 
 void MusicDatabase::GetAttributes(int track_id, MusicAttributes& attrs) const
 {
-    DEBUG("GetAttributes(" << track_id << ")");
     string stmt = "SELECT a1.name, a2.name, album.name, genre.name, t.year, t.track, t.disc, t.name, t.path "
                     "FROM track t "
                     "JOIN artist a1 ON a1.id = t.artist_id "

@@ -7,6 +7,8 @@ struct MusicAttributes
 
 struct sqlite3;
 
+class MusicInfo;
+
 class MusicDatabase
 {
 public:

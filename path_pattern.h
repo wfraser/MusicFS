@@ -1,37 +1,45 @@
 #pragma once
 
-struct path_building_component
+struct MusicAttributes;
+
+class PathPattern
 {
-    enum class Type
+public:
+    PathPattern(const char *pattern);
+    void AppendPathComponent(std::string& path, const MusicAttributes& attrs, size_t level) const;
+    size_t GetNumPathLevels() const;
+
+private:
+    struct Component
     {
-        Literal,
-        Artist,
-        AlbumArtist,
-        Album,
-        Genre,
-        Year,
-        Track,
-        Title,
-        Extension
+        enum class Type
+        {
+            Literal,
+            Artist,
+            AlbumArtist,
+            Album,
+            Genre,
+            Year,
+            Track,
+            Title,
+            Extension
+        };
+
+        Component(const std::string& s) :
+            type(Type::Literal),
+            literal(s)
+        {}
+
+        Component(Type t) :
+            type(t),
+            literal()
+        {}
+
+        Type type;
+        std::string literal;
     };
 
-    path_building_component(std::string s)
-        : type(Type::Literal)
-        , literal(s)
-    {}
-
-    path_building_component(Type t)
-        : type(t)
-        , literal()
-    {}
-
-    Type type;
-    std::string literal;
+    std::vector<std::vector<Component>> m_components;
 };
-
-void parse_pattern(
-    std::vector<std::vector<path_building_component>>& path_components,
-    const char *pattern
-    );
 
 extern const char *default_pattern;
