@@ -21,7 +21,7 @@ using namespace std;
 
 //static vector<string> s_groveledExtensions = { "mp3", "flac", "ogg" };
 
-void grovel(const string& base_path, MusicDatabase& db)
+vector<int> grovel(const string& base_path, MusicDatabase& db)
 {
     deque<string> directories;
     directories.push_back(base_path);
@@ -131,6 +131,8 @@ void grovel(const string& base_path, MusicDatabase& db)
 
     // Next, get metadata for remaining files and add to database.
 
+    vector<int> groveled_ids;
+
     size_t groveled_count = 0;
     while (!files.empty())
     {
@@ -150,8 +152,10 @@ void grovel(const string& base_path, MusicDatabase& db)
                 continue;
             }
 
-            db.AddTrack(info, partial_path, s.st_mtime);
+            int id;
+            db.AddTrack(info, partial_path, s.st_mtime, &id);
             groveled_count++;
+            groveled_ids.push_back(id);
         }
         else
         {
@@ -164,4 +168,6 @@ void grovel(const string& base_path, MusicDatabase& db)
     INFO("Removing un-referenced artists, albums, genres, and years.");
     // This also removes paths referencing these.
     db.CleanTables();
+
+    return groveled_ids;
 }

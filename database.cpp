@@ -36,17 +36,16 @@ static vector<string> s_tableStatements =
     // ON DELETE CASCADE: if referenced table's rows are deleted, deletes propogate to rows that reference them.
 
     "PRAGMA foreign_keys = ON;",
-    "CREATE TABLE IF NOT EXISTS artist ( id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL COLLATE NOCASE );",
-    "CREATE TABLE IF NOT EXISTS album  ( id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL COLLATE NOCASE );",
-    "CREATE TABLE IF NOT EXISTS genre  ( id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL COLLATE NOCASE );",
-    "CREATE TABLE IF NOT EXISTS year   ( id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL COLLATE NOCASE );",
+    "CREATE TABLE IF NOT EXISTS artist ( id INTEGER PRIMARY KEY, name TEXT NOT NULL COLLATE NOCASE );",
+    "CREATE TABLE IF NOT EXISTS album  ( id INTEGER PRIMARY KEY, name TEXT NOT NULL COLLATE NOCASE );",
+    "CREATE TABLE IF NOT EXISTS genre  ( id INTEGER PRIMARY KEY, name TEXT NOT NULL COLLATE NOCASE );",
     "CREATE TABLE IF NOT EXISTS track ( "
-        "id             INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "id             INTEGER PRIMARY KEY, "
         "artist_id      INTEGER NOT NULL, "
         "albumartist_id INTEGER NOT NULL, "
         "album_id       INTEGER NOT NULL, "
         "genre_id       INTEGER NOT NULL, "
-        "year_id        INTEGER NOT NULL, "
+        "year           INTEGER, "
         "name           TEXT    NOT NULL, "
         "track          INTEGER, "
         "disc           TEXT, "
@@ -55,27 +54,19 @@ static vector<string> s_tableStatements =
         "FOREIGN KEY(artist_id)      REFERENCES artist(id)  ON DELETE RESTRICT, "
         "FOREIGN KEY(albumartist_id) REFERENCES artist(id)  ON DELETE RESTRICT, "
         "FOREIGN KEY(album_id)       REFERENCES album(id)   ON DELETE RESTRICT, "
-        "FOREIGN KEY(genre_id)       REFERENCES genre(id)   ON DELETE RESTRICT, "
-        "FOREIGN KEY(year_id)        REFERENCES year(id)    ON DELETE RESTRICT "
+        "FOREIGN KEY(genre_id)       REFERENCES genre(id)   ON DELETE RESTRICT "
         ");",
     "CREATE TABLE IF NOT EXISTS path ( "
-        "id             INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "id             INTEGER PRIMARY KEY, "
         "path           TEXT    NOT NULL UNIQUE ON CONFLICT IGNORE, "
-        "artist_id      INTEGER, "
-        "albumartist_id INTEGER, "
-        "album_id       INTEGER, "
-        "genre_id       INTEGER, "
-        "year_id        INTEGER, "
         "track_id       INTEGER, "
-        "FOREIGN KEY(artist_id)      REFERENCES artist(id)  ON DELETE CASCADE, "
-        "FOREIGN KEY(albumartist_id) REFERENCES artist(id)  ON DELETE CASCADE, "
-        "FOREIGN KEY(album_id)       REFERENCES album(id)   ON DELETE CASCADE, "
-        "FOREIGN KEY(genre_id)       REFERENCES genre(id)   ON DELETE CASCADE, "
-        "FOREIGN KEY(year_id)        REFERENCES year(id)    ON DELETE CASCADE, "
-        "FOREIGN KEY(track_id)       REFERENCES track(id)   ON DELETE CASCADE "
+        "parent_id      INTEGER, "
+        "FOREIGN KEY(track_id)      REFERENCES track(id)    ON DELETE CASCADE, "
+        "FOREIGN KEY(parent_id)     REFERENCES path(id)     ON DELETE CASCADE "
         ");"
 };
 
+#ifdef REGEXP_SUPPORT
 void sql_regexp_function(sqlite3_context *dbHandle, int nArgs, sqlite3_value **args)
 {
     if (nArgs != 2)
@@ -92,6 +83,37 @@ void sql_regexp_function(sqlite3_context *dbHandle, int nArgs, sqlite3_value **a
 
     sqlite3_result_int(dbHandle, regex_match(b, regex(a)) ? 1 : 0);
 }
+
+string regex_escape(const string& s)
+{
+    string result;
+    for (const char c : s)
+    {
+        switch (c)
+        {
+        case '^':
+        case '$':
+        case '\\':
+        case '.':
+        case '*':
+        case '+':
+        case '?':
+        case '(':
+        case ')':
+        case '[':
+        case ']':
+        case '{':
+        case '}':
+        case '|':
+            result.push_back('\\');
+            // fall-through
+        default:
+            result.push_back(c);
+        }
+    }
+    return result;
+}
+#endif
 
 MusicDatabase::MusicDatabase(const char *dbFile)
 {
@@ -116,6 +138,7 @@ MusicDatabase::MusicDatabase(const char *dbFile)
         */
     }
 
+#ifdef REGEXP_SUPPORT
     CHECKERR_MSG(sqlite3_create_function_v2(
         m_dbHandle,
         "regexp",
@@ -128,6 +151,7 @@ MusicDatabase::MusicDatabase(const char *dbFile)
         nullptr
         ),
         "Error defining REGEXP function.");
+#endif
 }
 
 MusicDatabase::~MusicDatabase()
@@ -164,7 +188,6 @@ bool MusicDatabase::GetId(const char *table, std::string value, int *outId)
     }
 
     sqlite3_finalize(prepared);
-
     return found;
 }
 
@@ -174,9 +197,9 @@ void MusicDatabase::ClearPaths()
         "Error clearing out path table");
 }
 
-bool MusicDatabase::PathExists(const std::string& path) const
+bool MusicDatabase::GetRealPath(const string& path, string& pathOut) const
 {
-    string stmt = "SELECT NULL FROM path WHERE path.path = ?;";
+    string stmt = "SELECT track.path FROM path LEFT JOIN track ON track.id = path.track_id WHERE path.path = ?;";
 
     sqlite3_stmt *prepared;
     CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
@@ -185,338 +208,130 @@ bool MusicDatabase::PathExists(const std::string& path) const
     bool found = false;
     int result = sqlite3_step(prepared);
     if (result == SQLITE_ROW)
+    {
         found = true;
+        if (sqlite3_column_type(prepared, 0) == SQLITE_NULL)
+            pathOut.clear();
+        else
+            pathOut = reinterpret_cast<const char*>(sqlite3_column_text(prepared, 0));
+    }
     else if (result != SQLITE_DONE)
+    {
         CHECKERR(result);
+    }
 
     sqlite3_finalize(prepared);
     return found;
 }
 
-void MusicDatabase::AddPath(const std::string& path, const MusicAttributesById& constraints)
+int MusicDatabase::GetPathId(const string& path) const
 {
-    string stmt = "INSERT INTO path (path, artist_id, albumartist_id, album_id, genre_id, year_id, track_id) "
-                        "VALUES (?,?,?,?,?,?,?);";
+    string stmt = "SELECT id FROM path WHERE path = ?;";
+    sqlite3_stmt *prepared;
+    CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
+    CHECKERR(sqlite3_bind_text(prepared, 1, path.c_str(), path.size(), nullptr));
+
+    int id = 0;
+    int result = sqlite3_step(prepared);
+    if (result == SQLITE_ROW)
+    {
+        id = sqlite3_column_int(prepared, 0);
+    }
+    else if (result != SQLITE_DONE)
+    {
+        CHECKERR(result);
+    }
+
+    sqlite3_finalize(prepared);
+    return id;
+}
+
+int MusicDatabase::AddPath(const std::string& path, int parent_id, int track_id)
+{
+    string stmt = "INSERT OR ABORT INTO path (path, parent_id, track_id) "
+                        "VALUES (?,?,?);";
 
     sqlite3_stmt *prepared;
     CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
 
     CHECKERR(sqlite3_bind_text(prepared, 1, path.c_str(), path.size(), nullptr));
 
-#define bind_int(_pos, _value) \
-    if (_value == -1) \
-        CHECKERR(sqlite3_bind_null(prepared, _pos)); \
-    else \
-        CHECKERR(sqlite3_bind_int(prepared, _pos, _value))
+    if (parent_id == 0)
+        CHECKERR(sqlite3_bind_null(prepared, 2));
+    else
+        CHECKERR(sqlite3_bind_int(prepared, 2, parent_id));
 
-    bind_int(2, constraints.artist_id);
-    bind_int(3, constraints.albumartist_id);
-    bind_int(4, constraints.album_id);
-    bind_int(5, constraints.genre_id);
-    bind_int(6, constraints.year_id);
-    bind_int(7, constraints.track_id);
+    if (track_id == 0)
+        CHECKERR(sqlite3_bind_null(prepared, 3));
+    else
+        CHECKERR(sqlite3_bind_int(prepared, 3, track_id));
 
-#undef bind_int
-
-    DEBUG(stmt);
-    DEBUG("path:        " << path);
-    DEBUG("artist:      " << constraints.artist_id);
-    DEBUG("albumartist: " << constraints.albumartist_id);
-    DEBUG("album:       " << constraints.album_id);
-    DEBUG("genre:       " << constraints.genre_id);
-    DEBUG("year:        " << constraints.year_id);
-    DEBUG("track:       " << constraints.track_id);
-
+    int path_id = 0;
     int result = sqlite3_step(prepared);
-    if (result != SQLITE_DONE)
+    if (result == SQLITE_DONE)
+    {
+        path_id = sqlite3_last_insert_rowid(m_dbHandle);
+    }
+    else if (result == SQLITE_CONSTRAINT)
+    {
+        sqlite3_finalize(prepared);
+
+        stmt = "SELECT id FROM path WHERE path = ?;";
+        CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
+        CHECKERR(sqlite3_bind_text(prepared, 1, path.c_str(), path.size(), nullptr));
+        result = sqlite3_step(prepared);
+
+        if (result == SQLITE_ROW)
+        {
+            path_id = sqlite3_column_int(prepared, 0);
+        }
+        else
+        {
+            CHECKERR_MSG(result, "Error getting existing path row");
+        }
+    }
+    else
     {
         CHECKERR_MSG(result, "Error adding path row");
     }
-
-    sqlite3_finalize(prepared);
-}
-
-string regex_escape(const string& s)
-{
-    string result;
-    for (const char c : s)
-    {
-        switch (c)
-        {
-        case '^':
-        case '$':
-        case '\\':
-        case '.':
-        case '*':
-        case '+':
-        case '?':
-        case '(':
-        case ')':
-        case '[':
-        case ']':
-        case '{':
-        case '}':
-        case '|':
-            result.push_back('\\');
-            // fall-through
-        default:
-            result.push_back(c);
-        }
-    }
-    return result;
-}
-
-vector<pair<string, bool>> MusicDatabase::GetChildrenOfPath(const string& path, const MusicAttributesById& constraints) const
-{
-    string stmt = "SELECT path, track_id FROM path WHERE ";
-
-    // I know it's better to use bound values, but these are just ints, and it would make the code
-    // a lot more complex to do it that way.
-#define where(_) \
-    if (constraints._ == 0) \
-        stmt += "path." #_ " IS NULL AND "; \
-    else if (constraints._ != -1) \
-        stmt += "path." #_ " = " + to_string(constraints._) + " AND "
-
-    where(artist_id);
-    where(albumartist_id);
-    where(album_id);
-    where(genre_id);
-    where(year_id);
-    where(track_id);
     
-    stmt += " path REGEXP ?;";
+    sqlite3_finalize(prepared);
 
+    return path_id;
+}
+
+vector<pair<string, string>> MusicDatabase::GetChildrenOfPath(int parent_id) const
+{
+    vector<pair<string, string>> results; // first string is the path, second is the track filename (or empty string).
+
+    string stmt = "SELECT path.path, track.path "
+                    "FROM path "
+                    "LEFT JOIN track "
+                        "ON track.id = path.track_id "
+                    "WHERE path.parent_id ";
+
+    if (parent_id == 0)
+        stmt += "IS NULL;";
+    else
+        stmt += "= ?;";
+    
     sqlite3_stmt *prepared;
     CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
-
-    stringstream regex;
-    regex << '^';
-    if (path != "/")
-    {
-        // The root directory is a special case; don't add the extra slash.
-        regex << regex_escape(path);
-    }
-    regex << "/[^/]+";
-
-    string regex_str = regex.str();
-    CHECKERR(sqlite3_bind_text(prepared, 1, regex_str.c_str(), regex_str.size(), nullptr));
     
-    DEBUG(__FUNCTION__ << ": " << stmt << " " << regex.str());
+    if (parent_id != 0)
+        CHECKERR(sqlite3_bind_int(prepared, 1, parent_id));
 
-    vector<pair<string, bool>> results;
     int result;
     while ((result = sqlite3_step(prepared)) == SQLITE_ROW)
     {
         string childPath = reinterpret_cast<const char*>(sqlite3_column_text(prepared, 0));
-        bool isFile = sqlite3_column_type(prepared, 1) != SQLITE_NULL;
-
-        results.emplace_back(childPath, isFile);
-    }
-    if (result != SQLITE_DONE)
-    {
-        CHECKERR(result);
-    }
-
-    sqlite3_finalize(prepared);
-
-    return results;
-}
-
-string MusicDatabase::GetRealPath(const string& path) const
-{
-    string stmt = "SELECT track.path FROM track JOIN path ON path.track_id = track.id WHERE path.path = ?;";
-
-    sqlite3_stmt *prepared;
-    CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
-
-    CHECKERR(sqlite3_bind_text(prepared, 1, path.c_str(), path.size(), nullptr));
-
-    int result = sqlite3_step(prepared);
-    if (result == SQLITE_DONE)
-    {
-        return "";
-    }
-    else if (result == SQLITE_ROW)
-    {
-        string value = reinterpret_cast<const char*>(sqlite3_column_text(prepared, 0));
-        sqlite3_finalize(prepared);
-        return value;
-    }
-    else
-    {
-        CHECKERR(result);
-        sqlite3_finalize(prepared);
-        return "";
-    }
-}
-
-bool MusicDatabase::GetPathAttributes(const string& path, MusicAttributesById& constraints) const
-{
-    string stmt = "SELECT path.artist_id, path.albumartist_id, path.album_id, path.genre_id, path.year_id, path.track_id "
-        " FROM path WHERE path.path = ?;";
-
-    sqlite3_stmt *prepared;
-    CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
-
-    CHECKERR(sqlite3_bind_text(prepared, 1, path.c_str(), path.size(), nullptr));
-    
-    int result = sqlite3_step(prepared);
-    if (result == SQLITE_DONE)
-    {
-        sqlite3_finalize(prepared);
-        return false;
-    }
-    else if (result == SQLITE_ROW)
-    {
-#define intnull(_index, _name) \
-        if (sqlite3_column_type(prepared, _index) == SQLITE_NULL) \
-            constraints._name = -1; \
-        else \
-            constraints._name = sqlite3_column_int(prepared, _index)
-
-        intnull(0, artist_id);
-        intnull(1, albumartist_id);
-        intnull(2, album_id);
-        intnull(3, genre_id);
-        intnull(4, year_id);
-        intnull(5, track_id);
-
-#undef intnull
-
-        sqlite3_finalize(prepared);
-        return true;
-    }
-    else
-    {
-        CHECKERR(result);
-        sqlite3_finalize(prepared);
-        return false;
-    }
-}
-
-vector<vector<pair<int,string>>> MusicDatabase::GetValues(const vector<string>& columns, const MusicAttributesById& constraints) const
-{
-    stringstream stmt;
-
-    stmt << "SELECT DISTINCT ";
-    for (size_t i = 0, n = columns.size(); i < n; i++)
-    {
-        if (columns[i] == "title")
+        string trackFile;
+        if (sqlite3_column_type(prepared, 1) != SQLITE_NULL)
         {
-            stmt << "track.id, track.name ";
+            trackFile = reinterpret_cast<const char*>(sqlite3_column_text(prepared, 1));
         }
-        else if (columns[i] == "track")
-        {
-            stmt << "track.track ";
-        }
-        else if (columns[i] == "disc")
-        {
-            stmt << "track.disc ";
-        }
-        else if (columns[i] == "path")
-        {
-            stmt << "track.path ";
-        }
-        else if (columns[i] == "albumartist")
-        {
-            stmt << "artist.id, artist.name ";
-        }
-        else
-        {
-            stmt << columns[i] << ".id, " << columns[i] << ".name ";
-        }
-        if (i != n - 1)
-            stmt << ", ";
-    }
-    stmt << "FROM track ";
 
-    unordered_set<string> joined_tables;
-    for (const string& column : columns)
-    {
-        if (column == "albumartist")
-        {
-            joined_tables.insert("artist");
-        }
-        else if (column != "title"
-            && column != "track"
-            && column != "disc"
-            && column != "path")
-        {
-            joined_tables.insert(column);
-        }
-    }
-
-    vector<string> where_clauses;
-
-#define add_where_clause(_) \
-    if (constraints._##_id != -1) \
-    { \
-        where_clauses.push_back("track." #_ "_id = $" #_); \
-    }
-
-    add_where_clause(artist)
-    add_where_clause(albumartist);
-    add_where_clause(album)
-    add_where_clause(genre)
-    add_where_clause(year)
-
-#undef add_where_clause
-
-    for (const auto& table : joined_tables)
-    {
-        stmt << "JOIN " << table << " ON " << table << ".id = track." << table << "_id ";
-    }
-
-    if (where_clauses.size() > 0)
-        stmt << " WHERE " << join(where_clauses, " AND ");
-    stmt << ";";
-
-    DEBUG("GetValues(id): " << stmt.str());
-
-    sqlite3_stmt *prepared;
-    CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.str().c_str(), stmt.str().size(), &prepared, nullptr));
-
-#define bind_text(_) \
-    if (constraints._##_id != -1) \
-    { \
-        int index = sqlite3_bind_parameter_index(prepared, "$" #_); \
-        CHECKERR(sqlite3_bind_int(prepared, index, constraints._##_id)); \
-    }
-
-    bind_text(artist)
-    bind_text(albumartist)
-    bind_text(album)
-    bind_text(genre)
-    bind_text(year)
-
-#undef bind_text
-
-    vector<vector<pair<int, string>>> results;
-    int result;
-    while ((result = sqlite3_step(prepared)) == SQLITE_ROW)
-    {
-        results.emplace_back();
-        for (size_t i = 0, j = 0, n = columns.size(); i < n; i++)
-        {
-            int id;
-            if (columns[i] == "track" || columns[i] == "disc" || columns[i] == "path")
-            {
-                id = -1;
-            }
-            else
-            {
-                id = sqlite3_column_int(prepared, j++);
-            }
-
-            string value;
-            if (SQLITE_NULL != sqlite3_column_type(prepared, j))
-            {
-                value = reinterpret_cast<const char*>(sqlite3_column_text(prepared, j));
-            }
-            j++;
-            results.back().emplace_back(id, value);
-        }
+        results.emplace_back(childPath, trackFile);
     }
     if (result != SQLITE_DONE)
     {
@@ -559,11 +374,11 @@ void MusicDatabase::AddRow(const char *table, std::string value, int *outId)
     sqlite3_finalize(prepared);
 }
 
-void MusicDatabase::AddTrack(const MusicInfo& attributes, string path, time_t mtime)
+void MusicDatabase::AddTrack(const MusicInfo& attributes, string path, time_t mtime, int *outId)
 {
     DEBUG("Adding track: " << path);
 
-    int artistId, albumartistId, albumId, genreId, yearId;
+    int artistId, albumartistId, albumId, genreId;
 
     if (!GetId("artist", attributes.artist(), &artistId))
     {
@@ -589,14 +404,7 @@ void MusicDatabase::AddTrack(const MusicInfo& attributes, string path, time_t mt
         AddRow("genre", attributes.genre(), &genreId);
     }
 
-    string year = (attributes.year() == 0) ? "" : to_string(attributes.year());
-    if (!GetId("year", year, &yearId))
-    {
-        DEBUG("adding year " << attributes.year());
-        AddRow("year", year, &yearId);
-    }
-
-    string trackStmt = "INSERT INTO track (artist_id, albumartist_id, album_id, genre_id, year_id, name, track, disc, path, mtime) "
+    string trackStmt = "INSERT INTO track (artist_id, albumartist_id, album_id, genre_id, year, name, track, disc, path, mtime) "
         "VALUES(?,?,?,?,?,?,?,?,?,?);";
     sqlite3_stmt *prepared;
     CHECKERR(sqlite3_prepare_v2(m_dbHandle, trackStmt.c_str(), trackStmt.size(), &prepared, nullptr));
@@ -607,7 +415,7 @@ void MusicDatabase::AddTrack(const MusicInfo& attributes, string path, time_t mt
     CHECKERR(sqlite3_bind_int(prepared, 2, albumartistId));
     CHECKERR(sqlite3_bind_int(prepared, 3, albumId));
     CHECKERR(sqlite3_bind_int(prepared, 4, genreId));
-    CHECKERR(sqlite3_bind_int(prepared, 5, yearId));
+    CHECKERR(sqlite3_bind_int(prepared, 5, attributes.year()));
     CHECKERR(sqlite3_bind_text(prepared, 6, title.c_str(), title.size(), nullptr));
     CHECKERR(sqlite3_bind_int(prepared, 7, attributes.track()));
 
@@ -622,6 +430,70 @@ void MusicDatabase::AddTrack(const MusicInfo& attributes, string path, time_t mt
 
     int result = sqlite3_step(prepared);
     if (result != SQLITE_DONE)
+    {
+        CHECKERR(result);
+    }
+
+    sqlite3_finalize(prepared);
+
+    if (outId != nullptr)
+        *outId = sqlite3_last_insert_rowid(m_dbHandle);
+}
+
+void MusicDatabase::GetAttributes(int track_id, MusicAttributes& attrs) const
+{
+    DEBUG("GetAttributes(" << track_id << ")");
+    string stmt = "SELECT a1.name, a2.name, album.name, genre.name, t.year, t.track, t.disc, t.name, t.path "
+                    "FROM track t "
+                    "JOIN artist a1 ON a1.id = t.artist_id "
+                    "JOIN artist a2 ON a2.id = t.albumartist_id "
+                    "JOIN album ON album.id = t.album_id "
+                    "JOIN genre ON genre.id = t.genre_id "
+                    "WHERE t.id = ?;";
+    sqlite3_stmt *prepared;
+    CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
+    CHECKERR(sqlite3_bind_int(prepared, 1, track_id));
+
+    int result = sqlite3_step(prepared);
+    if (result == SQLITE_ROW)
+    {
+#define STRCOL(_n) reinterpret_cast<const char*>(sqlite3_column_text(prepared, _n))
+
+        attrs.Artist = STRCOL(0);
+        attrs.AlbumArtist = STRCOL(1);
+        attrs.Album = STRCOL(2);
+        attrs.Genre = STRCOL(3);
+
+        int year = sqlite3_column_int(prepared, 4);
+        if (year == 0)
+            attrs.Year.clear();
+        else
+            attrs.Year = to_string(year);
+
+        int track = sqlite3_column_int(prepared, 5);
+        if (track == 0)
+            attrs.Track.clear();
+        else
+            attrs.Track = to_string(track);
+
+        if (sqlite3_column_type(prepared,6) == SQLITE_NULL)
+            attrs.Disc.clear();
+        else
+            attrs.Disc = STRCOL(6);
+
+        if (sqlite3_column_type(prepared, 7) == SQLITE_NULL)
+            attrs.Title.clear();
+        else
+            attrs.Title = STRCOL(7);
+
+        if (sqlite3_column_type(prepared, 8) == SQLITE_NULL)
+            attrs.Path.clear();
+        else
+            attrs.Path = STRCOL(8);
+
+#undef STRCOL
+    }
+    else
     {
         CHECKERR(result);
     }
@@ -660,6 +532,37 @@ void MusicDatabase::CleanTable(const char *table)
     }
 }
 
+void MusicDatabase::CleanPaths()
+{
+    string stmt = "DELETE "
+                    "FROM path "
+                    "WHERE path.track_id IS NULL "
+                        "AND NOT EXISTS ("
+                            "SELECT NULL "
+                            "FROM path p2 "
+                            "WHERE p2.parent_id = path.id);";
+    sqlite3_stmt *prepared;
+    CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
+
+    int deleted_count = 0;
+    int round = 1;
+    do
+    {
+        int result = sqlite3_step(prepared);
+        if (result != SQLITE_DONE)
+            CHECKERR(result);
+
+        sqlite3_reset(prepared);
+
+        deleted_count = sqlite3_changes(m_dbHandle);
+        DEBUG("CleanPaths round " << round << " removed " << deleted_count << " rows.");
+        round++;
+
+    } while (deleted_count > 0);
+
+    sqlite3_finalize(prepared);
+}
+
 void MusicDatabase::RemoveTrack(int trackId)
 {
     sqlite3_stmt *prepared;
@@ -681,7 +584,6 @@ void MusicDatabase::CleanTables()
     CleanTable("artist");
     CleanTable("album");
     CleanTable("genre");
-    CleanTable("year");
 }
 
 vector<tuple<int, time_t, string>> MusicDatabase::GetTracks() const
@@ -711,7 +613,7 @@ vector<tuple<int, time_t, string>> MusicDatabase::GetTracks() const
     return results;
 }
 
-void MusicDatabase::BeginHeavyWriting()
+void MusicDatabase::BeginTransaction()
 {
     int result = sqlite3_exec(m_dbHandle, "BEGIN;", nullptr, nullptr, nullptr);
     if (result != SQLITE_DONE)
@@ -720,7 +622,7 @@ void MusicDatabase::BeginHeavyWriting()
     }
 }
 
-void MusicDatabase::EndHeavyWriting()
+void MusicDatabase::EndTransaction()
 {
     int result = sqlite3_exec(m_dbHandle, "END;", nullptr, nullptr, nullptr);
     if (result != SQLITE_DONE)

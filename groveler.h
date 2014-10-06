@@ -1,4 +1,4 @@
 #pragma once
 
-void grovel(const std::string& path, MusicDatabase& db);
+std::vector<int> grovel(const std::string& path, MusicDatabase& db);
 

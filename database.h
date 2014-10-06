@@ -1,12 +1,8 @@
 #pragma once
 
-struct MusicAttributesById
+struct MusicAttributes
 {
-    MusicAttributesById()
-        : artist_id(-1), albumartist_id(-1), album_id(-1), genre_id(-1), year_id(-1), track_id(-1)
-    {};
-
-    int artist_id, albumartist_id, album_id, genre_id, year_id, track_id;
+    std::string Artist, AlbumArtist, Album, Genre, Year, Track, Disc, Title, Path;
 };
 
 struct sqlite3;
@@ -21,25 +17,22 @@ public:
     MusicDatabase& operator=(const MusicDatabase&) = delete;
     MusicDatabase(MusicDatabase&&) = delete;
 
-    std::vector<std::vector<std::pair<int, std::string>>> GetValues(
-        const std::vector<std::string>& columns,
-        const MusicAttributesById& constraints
-        ) const;
-
-    void AddTrack(const MusicInfo& attributes, std::string filename, time_t mtime);
+    void AddTrack(const MusicInfo& attributes, std::string filename, time_t mtime, int *outId);
     void RemoveTrack(int id);
     std::vector<std::tuple<int, time_t, std::string>> GetTracks() const;
+    void GetAttributes(int track_id, MusicAttributes& attributes) const;
 
     void ClearPaths();
-    bool PathExists(const std::string& path) const;
-    void AddPath(const std::string& path, const MusicAttributesById& constraints);
-    std::vector<std::pair<std::string, bool>> GetChildrenOfPath(const std::string& path, const MusicAttributesById& constraints) const;
-    std::string GetRealPath(const std::string& path) const;
-    bool GetPathAttributes(const std::string& path, MusicAttributesById& constraints) const;
-    void BeginHeavyWriting();
-    void EndHeavyWriting();
+    bool GetRealPath(const std::string& path, std::string& pathOut) const;
+    int GetPathId(const std::string& path) const;
+    int AddPath(const std::string& path, int parent_id, int track_id);
+    std::vector<std::pair<std::string, std::string>> GetChildrenOfPath(int parent_id) const;
+    
+    void BeginTransaction();
+    void EndTransaction();
 
     void CleanTables();
+    void CleanPaths();
 
 private:
 

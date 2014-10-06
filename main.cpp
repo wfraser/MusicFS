@@ -5,6 +5,7 @@
 #include <memory>
 #include <vector>
 #include <string>
+#include <unordered_map>
 #include <sstream>
 #include <cstddef>
 #include <cstring>
@@ -186,14 +187,16 @@ int musicfs_access(const char *path, int mode)
 {
     DEBUG("access (" << mode << ") " << path);
 
-    if (strcmp(path, "/") != 0 && !musicfs.db->PathExists(path))
+    string partialRealPath;
+    bool exists = musicfs.db->GetRealPath(path, partialRealPath);
+
+    if (strcmp(path, "/") != 0 && !exists)
         return -ENOENT;
 
     // Writing is never OK.
     if (mode & W_OK)
         return -EACCES;
 
-    string partialRealPath = musicfs.db->GetRealPath(path);
     if (partialRealPath.empty())
     {
         return 0;
@@ -217,10 +220,12 @@ int musicfs_getattr(const char *path, struct stat *stbuf)
     }
     else
     {
-        if (!musicfs.db->PathExists(path))
+        string partialRealPath;
+        bool exists = musicfs.db->GetRealPath(path, partialRealPath);
+
+        if (!exists)
             return -ENOENT;
 
-        string partialRealPath = musicfs.db->GetRealPath(path);
         if (partialRealPath.empty())
         {
             fake_directory_stat(stbuf);
@@ -237,89 +242,38 @@ int musicfs_opendir(const char *path, fuse_file_info *ffi)
 {
     DEBUG("opendir" << path);
 
-    auto constraints = new MusicAttributesById();
-
-    // Here's the trick:
-    // To narrow the search space, we need to specify which properties NEED to be null,
-    // based on what level in the directory tree we're at.
-    // Setting them to 0 in the constraints specifies "must be null".
-
-    // Count slashes to see what level in the tree we're at.
-    size_t level = 0;
-    for (size_t i = 1; path[i] != '\0'; i++)
+    int path_id = 0;
+    if (strcmp(path, "/") != 0)
     {
-        if (path[i] == '/')
-            level++;
+        path_id = musicfs.db->GetPathId(path);
+        if (path_id == 0)
+            return -ENOENT;
     }
 
-    // Starting at the next level in the path pattern, any properties used to make that
-    // component need to be specified as null.
-    for (size_t i = level + 1, n = musicfs.path_components.size(); i < n; i++)
-    {
-        typedef path_building_component::Type t;
-        for (const path_building_component& component : musicfs.path_components[i])
-        {
-            switch (component.type)
-            {
-            case t::Literal:
-                break;
-            case t::Artist:
-                constraints->artist_id = 0;
-                break;
-            case t::AlbumArtist:
-                constraints->albumartist_id = 0;
-                break;
-            case t::Album:
-                constraints->album_id = 0;
-                break;
-            case t::Genre:
-                constraints->genre_id = 0;
-                break;
-            case t::Year:
-                constraints->year_id = 0;
-                break;
-            case t::Track:
-            case t::Title:
-            case t::Extension:
-                constraints->track_id = 0;
-                break;
-            }
-        }
-    }
-
-    bool found = (strcmp(path, "/") == 0) || musicfs.db->GetPathAttributes(path, *constraints);
-    if (!found)
-    {
-        return -ENOENT;
-    }
-    else
-    {
-        ffi->fh = reinterpret_cast<uint64_t>(constraints);
-        return 0;
-    }
+    ffi->fh = path_id;
+    return 0;
 }
 
 int musicfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi)
 {
     DEBUG("readdir " << path);
 
-    auto constraints = reinterpret_cast<MusicAttributesById*>(fi->fh);
+    int path_id = fi->fh;
 
-    vector<pair<string, bool>> entries = musicfs.db->GetChildrenOfPath(path, *constraints);
+    vector<pair<string, string>> entries = musicfs.db->GetChildrenOfPath(path_id);
 
-    for (const pair<string, bool>& entry : entries)
+    for (const pair<string, string>& entry : entries)
     {
         size_t path_len = strlen(path);
         if (path_len > 1) path_len++;
 
         string basename = entry.first.substr(path_len);
-        DEBUG("adding path: " << basename);
 
         struct stat stbuf;
-        if (entry.second)
+        if (!entry.second.empty())
         {
             // If this is a file, go and stat it now to save syscalls later.
-            stat_real_file(entry.first.c_str(), &stbuf);
+            stat_real_file(entry.second.c_str(), &stbuf);
         }
         else
         {
@@ -335,12 +289,6 @@ int musicfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t o
 int musicfs_releasedir(const char *path, struct fuse_file_info *fi)
 {
     DEBUG("releasedir " << path);
-
-    if (fi->fh != 0)
-    {
-        auto constraints = reinterpret_cast<MusicAttributesById*>(fi->fh);
-        delete constraints;
-    }
     return 0;
 }
 
@@ -350,8 +298,9 @@ int musicfs_open(const char *path, struct fuse_file_info *fi)
 
     //TODO: check fi->flags ?
 
-    string partialRealPath = musicfs.db->GetRealPath(path);
-    if (partialRealPath.empty())
+    string partialRealPath;
+    bool found = musicfs.db->GetRealPath(path, partialRealPath);
+    if (!found || partialRealPath.empty())
     {
         return -ENOENT;
     }
@@ -380,7 +329,7 @@ int musicfs_read(const char *path, char *buf, size_t buf_size, off_t offset, str
         PERROR("read");
         return -errno;
     }
-    else if (r != buf_size)
+    else if (r != (ssize_t)buf_size)
     {
         DEBUG("fewer bytes read than requestd");
     }
@@ -533,201 +482,131 @@ string sanitize_path(const string& s)
             result.push_back(c);
         }
     }
+    while (result.size() > 0 && result.back() == '.')
+    {
+        // Windows doesn't like paths that end in a dot.
+        result.pop_back();
+    }
+    if (result.size() == 0)
+        result.push_back('_');
+
     return result;
 }
 
-#if 0
-void build_paths2(
-    MusicDatabase& db,
-    const vector<int>& trackIds,
-    const vector<vector<path_building_component>>& path_components
-    )
-{
-    for (int trackId : trackIds)
-    {
-
-    }
-}
-#endif
-
 void build_paths(
     MusicDatabase& db,
-    const MusicAttributesById& constraints,
     const vector<vector<path_building_component>>& path_components,
-    size_t level,
-    const string& base_path
+    const vector<int>& track_ids
     )
 {
-    vector<string> columns;
-    typedef path_building_component::Type t;
+    unordered_map<string, int> paths;
 
-    for (const path_building_component& comp : path_components[level])
+    for (int track_id : track_ids)
     {
-        switch (comp.type)
+        typedef path_building_component::Type t;
+
+        MusicAttributes attrs;
+        db.GetAttributes(track_id, attrs);
+
+        int parent_id = 0;
+        string path;
+
+        for (size_t level = 0, levels = path_components.size(); level < levels; level++)
         {
-        case t::Artist:         columns.push_back("artist"); break;
-        case t::AlbumArtist:    columns.push_back("albumartist"); break;
-        case t::Album:          columns.push_back("album"); break;
-        case t::Genre:          columns.push_back("genre"); break;
-        case t::Year:           columns.push_back("year"); break;
+            path.push_back('/');
 
-        case t::Extension:      columns.push_back("path"); break;
-        case t::Title:
-            columns.push_back("title");
-            // Also add the path in case the title is empty.
-            columns.push_back("path");
-            break;
-        
-        case t::Track:
-            columns.push_back("track");
-            columns.push_back("disc");
-            break;
-
-        case t::Literal:
-        default:
-            continue;
-        }
-    }
-
-    DEBUG("requesting cols from db: " << join(columns, ","));
-    vector<vector<pair<int, string>>> values = db.GetValues(columns, constraints);
-
-    for (vector<pair<int, string>> cols : values)
-    {
-        MusicAttributesById constraints2 = constraints;
-        string path = base_path + '/';
-
-        bool track_specified = false;
-
-        for (size_t i = 0, j = 0, n = path_components[level].size(); i < n; i++)
-        {
-            const path_building_component& comp = path_components[level][i];
-            switch (comp.type)
+            for (const path_building_component& comp : path_components[level])
             {
-            case t::Literal:
-                path += comp.literal;
-                break;
-
-            case t::Artist:
-                if (cols[j].second.empty())
-                    path += "(unknown artist)";
-                else
-                    path += sanitize_path(cols[j].second);
-                constraints2.artist_id = cols[j].first;
-                j++;
-                break;
-
-            case t::AlbumArtist:
-                if (cols[j].second.empty())
-                    path += "(unknown artist)";
-                else
-                    path += sanitize_path(cols[j].second);
-                constraints2.albumartist_id = cols[j].first;
-                j++;
-                break;
-
-            case t::Album:
-                if (cols[j].second.empty())
-                    path += "(unknown album)";
-                else
-                    path += sanitize_path(cols[j].second);
-                constraints2.album_id = cols[j].first;
-                j++;
-                break;
-
-            case t::Genre:
-                if (cols[j].second.empty())
-                    path += "(unknown genre)";
-                else
-                    path += sanitize_path(cols[j].second);
-                constraints2.genre_id = cols[j].first;
-                j++;
-                break;
-
-            case t::Year:
-                if (cols[j].second.empty() || cols[j].second == "0")
-                    path += "____";
-                else
-                    path += cols[j].second;
-                constraints2.year_id = cols[j].first;
-                j++;
-                break;
-
-            case t::Track: {
-                // This fetched the track number as cols[j] and the disc as cols[j+1].
-                if (cols[j].second.empty() || cols[j].second == "0")
-                    path += "__";
-                else
+                switch (comp.type)
                 {
-                    if (cols[j].second.size() == 1)
-                        path += '0';
-                    path += cols[j].second;
-                }
-                
-                string& disc = cols[j+1].second;
-                if (!disc.empty())
-                {
-                    auto pos = disc.find('/');
-                    bool showDisc = false;
-                    if (pos == string::npos)
+                case t::Artist:
+                    if (attrs.Artist.empty())
+                        path += "(unknown artist)";
+                    else
+                        path += sanitize_path(attrs.Artist);
+                    break;
+                case t::AlbumArtist:
+                    if (attrs.AlbumArtist.empty())
+                        path += "(unknown artist)";
+                    else
+                        path += sanitize_path(attrs.AlbumArtist);
+                    break;
+                case t::Album:
+                    if (attrs.Album.empty())
+                        path += "(unknown album)";
+                    else
+                        path += sanitize_path(attrs.Album);
+                    break;
+                case t::Genre:
+                    if (attrs.Genre.empty())
+                        path += "(unknown genre)";
+                    else
+                        path += sanitize_path(attrs.Genre);
+                    break;
+                case t::Year:
+                    if (attrs.Year.empty())
+                        path += "____";
+                    else
+                        path += attrs.Year;
+                    break;
+                case t::Extension:
+                    path += attrs.Path.substr(attrs.Path.find_last_of('.') + 1);
+                    break;
+                case t::Title:
+                    if (attrs.Title.empty())
                     {
-                        DEBUG("disc number doesn't have a slash: \"" << disc << "\"");
-                        showDisc = (atoi(disc.c_str()) > 1);
+                        auto slash = attrs.Path.find_last_of('/');
+                        auto dot = attrs.Path.find_last_of('.');
+                        path += attrs.Path.substr(slash + 1, dot - slash - 1);
                     }
                     else
+                        path += sanitize_path(attrs.Title);
+                    break;
+                case t::Track:
+                    if (attrs.Track.empty())
+                        path += "__";
+                    else
                     {
-                        string totalDiscs = disc.substr(pos + 1);
-                        showDisc = (atoi(totalDiscs.c_str()) > 1);
+                        auto pos = attrs.Disc.find('/');
+                        bool showDisc = false;
+                        if (pos == string::npos)
+                        {
+                            showDisc = (atoi(attrs.Disc.c_str()) > 1);
+                        }
+                        else
+                        {
+                            showDisc = (atoi(attrs.Disc.c_str() + pos + 1) > 1);
+                        }
+
+                        if (showDisc)
+                        {
+                            path += attrs.Disc.substr(0, pos) + ".";
+                        }
+
+                        if (attrs.Track.size() == 1)
+                            path += "0";
+                        path += attrs.Track;
                     }
+                    break;
 
-                    if (showDisc)
-                    {
-                        path = disc.substr(0, pos - 1) + "." + path;
-                    }
+                case t::Literal:
+                    path += comp.literal;
+                    break;
                 }
-
-                j += 2;
-                track_specified = true;
             }
-                break;
 
-            case t::Title:
-                // This fetched the title as cols[j] and the path as cols[j+1].
-                if (cols[j].second.empty())
-                {
-                    //path += "(untitled)";
-                    string& filename = cols[j+1].second;
-                    auto slash = filename.find_last_of('/');
-                    auto dot = filename.find_last_of('.');
-                    path += filename.substr(slash + 1, dot - slash - 1);
-                }
-                else
-                    path += sanitize_path(cols[j].second);
-                constraints2.track_id = cols[j].first;
-                j += 2;
-                track_specified = true;
-                break;
-
-            case t::Extension:
-                path += cols[j].second.substr(cols[j].second.find_last_of('.') + 1);
-                j++;
-                track_specified = true;
-                break;
+            auto pos = paths.find(path);
+            if (pos == paths.end())
+            {
+                DEBUG("adding path: " << path);
+                parent_id = db.AddPath(path, parent_id, (level == levels - 1) ? track_id : 0);
+                paths.emplace(path, parent_id);
             }
-        }
-
-        if (track_specified && (level != path_components.size() - 1))
-        {
-            ERROR("In pattern: %track%, %title%, and %ext% can only be specified in the last path component.");
-            throw new exception();
-        }
-
-        DEBUG("adding path: " << path);
-        db.AddPath(path, constraints2);
-
-        if (level < path_components.size() - 1)
-        {
-            build_paths(db, constraints2, path_components, level + 1, path);
+            else
+            {
+                DEBUG("already have path: " << path);
+                parent_id = pos->second;
+            }
         }
     }
 }
@@ -770,43 +649,25 @@ int main(int argc, char **argv)
     }
     parse_pattern(musicfs.path_components, musicfs.pattern);
 
-    cout << "opening database...\n";
+    cout << "Opening database...\n";
 
     MusicDatabase db("music.db");
 
-    db.BeginHeavyWriting();
+    db.BeginTransaction();
 
-    cout << "groveling music...\n";
+    cout << "Groveling music. This may take a while...\n";
 
-    grovel(musicfs.backing_fs, db);
+    vector<int> groveled_ids = grovel(musicfs.backing_fs, db);
 
-    cout << "computing paths...\n";
+    cout << "Computing paths...\n";
 
-    MusicAttributesById constraints;
-    build_paths(db, constraints, musicfs.path_components, 0, "");
+    build_paths(db, musicfs.path_components, groveled_ids);
 
-    db.EndHeavyWriting();
+    db.CleanPaths();
 
-#if 0
-    // DEBUG
-    MusicAttributes c;
-    c.artist = make_unique<string>("C418");
-    c.year = make_unique<string>("2008");
-    for (const vector<pair<int, string>>& strings : db.GetValues({"album", "year", "title", "track"}, c))
-    {
-        stringstream ss;
-        for (const pair<int, string>& p : strings)
-        {
-            ss << p.first << "/" << p.second << ", ";
-        }
+    db.EndTransaction();
 
-        DEBUG("db: " << ss.str());
-    }
-    return 0;
-    // END DEBUG
-#endif
-
-    cout << "ready to go!\n";
+    cout << "Ready to go!\n";
 
     musicfs.db = &db;
 

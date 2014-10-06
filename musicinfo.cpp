@@ -30,7 +30,7 @@ bool MusicInfo::has_tag() const
 
 #define STRMETHOD(_name) string MusicInfo::_name() const \
 { \
-    return m_fileRef.tag()->_name().to8Bit(true); \
+    return m_fileRef.tag()->_name().stripWhiteSpace().to8Bit(true); \
 }
 
 #define INTMETHOD(_name) unsigned int MusicInfo::_name() const \
@@ -47,32 +47,12 @@ STRMETHOD(genre)
 INTMETHOD(year)
 INTMETHOD(track)
 
-unique_ptr<TagLib::File> FileSpecialized(const string& path)
-{
-    string ext = path.substr(path.find_last_of('.') + 1);
-    if (strcasecmp(ext.c_str(), "flac") == 0)
-    {
-        return make_unique<TagLib::FLAC::File>(path.c_str());
-    }
-    else if (strcasecmp(ext.c_str(), "mp3") == 0)
-    {
-        return make_unique<TagLib::MPEG::File>(path.c_str());
-    }
-    else
-    {
-        return nullptr;
-    }
-    //TODO: implement this for other types
-    // See my TagLib mailing list thread here:
-    // http://mail.kde.org/pipermail/taglib-devel/2014-September/002700.html
-}
-
 string MusicInfo::albumartist() const
 {
     string val = property("ALBUMARTIST");
     if (val.empty())
     {
-        DEBUG("No ALBUMARTIST for file " << m_fileRef.file()->name());
+        //DEBUG("No ALBUMARTIST for file " << m_fileRef.file()->name());
         return artist();
     }
     return val;
@@ -85,7 +65,7 @@ string MusicInfo::disc() const
 
 string MusicInfo::property(const string& name) const
 {
-    return m_fileRef.file()->properties()[name].toString().to8Bit(true);
+    return m_fileRef.file()->properties()[name].toString().stripWhiteSpace().to8Bit(true);
 }
 
 string MusicInfo::extension() const
