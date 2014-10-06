@@ -30,7 +30,7 @@ How to use
 1. `git clone https://github.com/wfraser/MusicFS.git`
 2. `cd MusicFS`
 3. `make`
-4. `./musicfs /path/to/your/music /some/mountpoint`
+4. `./musicfs -v /path/to/your/music /some/mountpoint`
 
 The first time this runs, it will take a bit of time to go through all your music.
 Subsequent times will be much, much faster (it skips over un-changed files).
@@ -58,7 +58,9 @@ Specify `-o pattern=<pattern>` when running MusicFS. The format of the pattern i
 * %title%
 * %ext%
 
-The default pattern is "%albumartist%/[%year%] %album%/%track% - %title%.%ext%".
+The default pattern is `%albumartist%/[%year%] %album%/%track% - %title%.%ext%`.
+Make sure when specifying `-o format` to use quotes as appropriate.
+E.g.: `sudo ./musicfs -v -o allow_other,format="%ext%/%albumartist% - %album% (%year%)/%track% - %artist% - %title%.%ext%" /archive/music /srv/music`
 
 Future ideas
 ------------
