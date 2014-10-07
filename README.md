@@ -39,9 +39,8 @@ The organized view of your music is read-only.
 If you need to update the metadata in a file, do so on the original file, unmount MusicFS, and run it again.
 It will detect the changed files and update paths accordingly.
 
-Note that MusicFS stores its data in a file named `music.db` in whatever directory `musicfs` is run from.
-Make sure to always run it from this location, to save it lots of time re-examining your files.
-A future update will make the location and name of the database file a configurable parameter.
+Note that MusicFS by default stores its data in a file named `music.db` in whatever directory `musicfs` is run from.
+Specify a specific database path using `-o database=/path/to/database`, (or make sure to always run it from the same working directory) to save it lots of time re-examining your files.
 
 Options
 -------
@@ -69,4 +68,3 @@ Some, all, or none of these might happen in the future:
 
 * Read/Write mode? Allow editing metadata in-place, with MusicFS rearranging files immediately.
 * Allow re-scanning files while the FS is mounted?
-* Configurable database path.

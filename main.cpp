@@ -23,12 +23,17 @@ bool musicfs_log_stderr = false;
 #include "groveler.h"
 
 using namespace std;
+
+const char default_database_name[] = "music.db";
+
+#define countof(_) (sizeof(_) / sizeof(*(_)))
         
 struct musicfs_opts
 {
     char *backing_fs;
     char *pattern;
     MusicDatabase *db;
+    char *database_path;
 };
 static musicfs_opts musicfs = {};
 
@@ -268,8 +273,9 @@ enum
 };
 
 static fuse_opt musicfs_opts_spec[] = {
-    { "backing_fs=%s",  offsetof(struct musicfs_opts, backing_fs),  0 },
-    { "pattern=%s",     offsetof(struct musicfs_opts, pattern),     0 },
+    { "backing_fs=%s",  offsetof(struct musicfs_opts, backing_fs),      0 },
+    { "pattern=%s",     offsetof(struct musicfs_opts, pattern),         0 },
+    { "database=%s",    offsetof(struct musicfs_opts, database_path),   0 },
     FUSE_OPT_KEY("verbose",     KEY_VERBOSE),
     FUSE_OPT_KEY("-v",          KEY_VERBOSE),
     FUSE_OPT_KEY("--verbose",   KEY_VERBOSE),
@@ -384,9 +390,24 @@ int main(int argc, char **argv)
 
     PathPattern pathPattern(musicfs.pattern);
 
-    cout << "Opening database...\n";
+    if (musicfs.database_path == nullptr)
+    {
+        INFO("No database path specified, using \"" << default_database_name
+            << "\" in the current directory.");
 
-    MusicDatabase db("music.db");
+        musicfs.database_path = get_current_dir_name();
+        size_t len = strlen(musicfs.database_path);
+
+        musicfs.database_path = reinterpret_cast<char*>(realloc(musicfs.database_path,
+                len + countof(default_database_name) + 2 /* one for trailing NUL, one for slash */));
+
+        musicfs.database_path[len] = '/';
+        strcpy(musicfs.database_path + len + 1, default_database_name);
+    }
+
+    cout << "Opening database (" << musicfs.database_path << ")...\n";
+
+    MusicDatabase db(musicfs.database_path);
 
     db.BeginTransaction();
 
