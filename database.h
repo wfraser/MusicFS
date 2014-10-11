@@ -28,7 +28,7 @@ public:
     bool GetRealPath(const std::string& path, std::string& pathOut) const;
     int GetPathId(const std::string& path) const;
     int AddPath(const std::string& path, int parent_id, int track_id);
-    std::vector<std::pair<std::string, std::string>> GetChildrenOfPath(int parent_id) const;
+    std::vector<std::string> GetChildrenOfPath(int parent_id) const;
     
     void BeginTransaction();
     void EndTransaction();

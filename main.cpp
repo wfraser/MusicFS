@@ -11,6 +11,7 @@
 #include <cstring>
 
 #include <unistd.h>
+#include <time.h>
 
 int musicfs_log_level;
 bool musicfs_log_stderr = false;
@@ -34,6 +35,7 @@ struct musicfs_opts
     char *pattern;
     MusicDatabase *db;
     char *database_path;
+    time_t startup_time;
 };
 static musicfs_opts musicfs = {};
 
@@ -63,12 +65,14 @@ int stat_real_file(const char *path, struct stat *stbuf)
 
 void fake_directory_stat(struct stat *stbuf)
 {
-    stbuf->st_mode = S_IFDIR | 0555;
+    stbuf->st_mode = S_IFDIR | 0555; // dr-xr-xr-x
     stbuf->st_uid  = getuid();
     stbuf->st_gid  = getgid();
 
-    // TODO should use database's time.
-    stbuf->st_atim = stbuf->st_mtim = stbuf->st_ctim = {0,123456789};
+    // Directory atime, mtime, and ctime are set to our startup time.
+    stbuf->st_ctim.tv_sec = musicfs.startup_time;
+    stbuf->st_ctim.tv_nsec = 0;
+    stbuf->st_atim = stbuf->st_mtim = stbuf->st_ctim;
 
     // This value needs to be at least 1.
     // The actual value doesn't seem to matter much, and is expensive to compute.
@@ -152,27 +156,18 @@ int musicfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t o
 
     int path_id = fi->fh;
 
-    vector<pair<string, string>> entries = musicfs.db->GetChildrenOfPath(path_id);
+    vector<string> entries = musicfs.db->GetChildrenOfPath(path_id);
 
-    for (const pair<string, string>& entry : entries)
+    filler(buf, ".", nullptr, 0);
+    filler(buf, "..", nullptr, 0);
+
+    for (const string& entry : entries)
     {
         size_t path_len = strlen(path);
         if (path_len > 1) path_len++;
 
-        string basename = entry.first.substr(path_len);
-
-        struct stat stbuf;
-        if (!entry.second.empty())
-        {
-            // If this is a file, go and stat it now to save syscalls later.
-            stat_real_file(entry.second.c_str(), &stbuf);
-        }
-        else
-        {
-            fake_directory_stat(&stbuf);
-        }
-
-        filler(buf, basename.c_str(), &stbuf, 0);
+        string basename = entry.substr(path_len);
+        filler(buf, basename.c_str(), nullptr, 0);
     }
 
     return 0;
@@ -406,25 +401,21 @@ int main(int argc, char **argv)
     }
 
     cout << "Opening database (" << musicfs.database_path << ")...\n";
-
     MusicDatabase db(musicfs.database_path);
 
     db.BeginTransaction();
 
     cout << "Groveling music. This may take a while...\n";
-
     vector<int> groveled_ids = grovel(musicfs.backing_fs, db);
 
     cout << "Computing paths...\n";
-
     build_paths(db, pathPattern, groveled_ids);
 
     db.EndTransaction();
 
     cout << "Ready to go!\n";
-
+    musicfs.startup_time = time(nullptr);
     musicfs.db = &db;
-
     fuse_main(args.argc, args.argv, &MusicFS_Opers, nullptr);
 
     return 0;

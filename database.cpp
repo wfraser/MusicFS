@@ -298,14 +298,12 @@ int MusicDatabase::AddPath(const std::string& path, int parent_id, int track_id)
     return path_id;
 }
 
-vector<pair<string, string>> MusicDatabase::GetChildrenOfPath(int parent_id) const
+vector<string> MusicDatabase::GetChildrenOfPath(int parent_id) const
 {
-    vector<pair<string, string>> results; // first string is the path, second is the track filename (or empty string).
+    vector<string> results;
 
-    string stmt = "SELECT path.path, track.path "
+    string stmt = "SELECT path.path "
                     "FROM path "
-                    "LEFT JOIN track "
-                        "ON track.id = path.track_id "
                     "WHERE path.parent_id ";
 
     if (parent_id == 0)
@@ -322,14 +320,8 @@ vector<pair<string, string>> MusicDatabase::GetChildrenOfPath(int parent_id) con
     int result;
     while ((result = sqlite3_step(prepared)) == SQLITE_ROW)
     {
-        string childPath = reinterpret_cast<const char*>(sqlite3_column_text(prepared, 0));
-        string trackFile;
-        if (sqlite3_column_type(prepared, 1) != SQLITE_NULL)
-        {
-            trackFile = reinterpret_cast<const char*>(sqlite3_column_text(prepared, 1));
-        }
-
-        results.emplace_back(childPath, trackFile);
+        const char* childPath = reinterpret_cast<const char*>(sqlite3_column_text(prepared, 0));
+        results.emplace_back(childPath);
     }
     if (result != SQLITE_DONE)
     {
