@@ -31,8 +31,6 @@ PathPattern::PathPattern(const char *pattern)
                     type = t::AlbumArtist;
                 else if (buf == "album")
                     type = t::Album;
-                else if (buf == "genre")
-                    type = t::Genre;
                 else if (buf == "year")
                     type = t::Year;
                 else if (buf == "track")
@@ -82,7 +80,6 @@ PathPattern::PathPattern(const char *pattern)
             else if (part.type == t::Artist) type = "artist";
             else if (part.type == t::AlbumArtist) type = "albumartist";
             else if (part.type == t::Album) type = "album";
-            else if (part.type == t::Genre) type = "genre";
             else if (part.type == t::Year) type = "year";
             else if (part.type == t::Track) type = "track";
             else if (part.type == t::Title) type = "title";
@@ -173,12 +170,6 @@ void PathPattern::AppendPathComponent(string& path, const MusicAttributes& attrs
                 path += "(unknown album)";
             else
                 path += sanitize_path(attrs.Album);
-            break;
-        case t::Genre:
-            if (attrs.Genre.empty())
-                path += "(unknown genre)";
-            else
-                path += sanitize_path(attrs.Genre);
             break;
         case t::Year:
             if (attrs.Year.empty())

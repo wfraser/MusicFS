@@ -2,12 +2,7 @@
     Right now, all are presented side-by-side.
     Fixing this is a work in progress.
     a. The extension preference should be configurable at runtime.
-    b. Tracks need to be considered equal only if artist, albumartist, album, title, track, and disc are the same
-        i. right now it also considers Genre, which is an unreliable piece of metadata, so it doesn't work right.
-        ii. Genre should be a property of the file, not of the track?
-        iii. or should the track be an agglomeration of all the genres for its files?
-        iv. Should this even try to support Genre, given how poor the data is?
-    c. Empty directories (ones made empty by filtering) should not be shown.
+    b. Empty directories (ones made empty by filtering) should not be shown.
         i. This might be expensive to compute...
 
 2. Attributes on directories are wrong:

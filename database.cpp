@@ -39,26 +39,23 @@ static vector<string> s_tableStatements =
     "PRAGMA foreign_keys = ON;",
     "CREATE TABLE IF NOT EXISTS artist ( id INTEGER PRIMARY KEY, name TEXT NOT NULL COLLATE NOCASE );",
     "CREATE TABLE IF NOT EXISTS album  ( id INTEGER PRIMARY KEY, name TEXT NOT NULL COLLATE NOCASE );",
-    "CREATE TABLE IF NOT EXISTS genre  ( id INTEGER PRIMARY KEY, name TEXT NOT NULL COLLATE NOCASE );",
     "CREATE TABLE IF NOT EXISTS track ( "
         "id             INTEGER PRIMARY KEY, "
         "artist_id      INTEGER NOT NULL, "
         "albumartist_id INTEGER NOT NULL, "
         "album_id       INTEGER NOT NULL, "
-        "genre_id       INTEGER NOT NULL, "
-        "year           INTEGER, "
+        "year           INTEGER NOT NULL, "
         "name           TEXT    NOT NULL, "
-        "track          INTEGER, "
-        "disc           TEXT, "
+        "track          INTEGER NOT NULL, "
+        "disc           TEXT    NOT NULL, "
         "FOREIGN KEY(artist_id)      REFERENCES artist(id)  ON DELETE RESTRICT, "
         "FOREIGN KEY(albumartist_id) REFERENCES artist(id)  ON DELETE RESTRICT, "
-        "FOREIGN KEY(album_id)       REFERENCES album(id)   ON DELETE RESTRICT, "
-        "FOREIGN KEY(genre_id)       REFERENCES genre(id)   ON DELETE RESTRICT "
+        "FOREIGN KEY(album_id)       REFERENCES album(id)   ON DELETE RESTRICT "
         ");",
     "CREATE TABLE IF NOT EXISTS file ( "
         "id             INTEGER PRIMARY KEY, "
         "track_id       INTEGER NOT NULL, "
-        "path           TEXT, "
+        "path           TEXT    NOT NULL, "
         "mtime          TEXT    NOT NULL, "
         "FOREIGN KEY(track_id)      REFERENCES track(id)    ON DELETE RESTRICT "
         ");",
@@ -430,7 +427,7 @@ void MusicDatabase::AddTrack(const MusicInfo& attributes, string path, time_t mt
 {
     DEBUG("Adding track: " << path);
 
-    int artistId, albumartistId, albumId, genreId;
+    int artistId, albumartistId, albumId;
 
     if (!GetId("artist", attributes.artist(), &artistId))
     {
@@ -450,12 +447,6 @@ void MusicDatabase::AddTrack(const MusicInfo& attributes, string path, time_t mt
         AddRow("album", attributes.album(), &albumId);
     }
 
-    if (!GetId("genre", attributes.genre(), &genreId))
-    {
-        DEBUG("adding genre " << attributes.genre());
-        AddRow("genre", attributes.genre(), &genreId);
-    }
-    
     // Bind these to local strings so we control their lifetimes.
     string title = attributes.title();
     string disc = attributes.disc();
@@ -464,7 +455,6 @@ void MusicDatabase::AddTrack(const MusicInfo& attributes, string path, time_t mt
                     "WHERE artist_id = ? "
                         "AND albumartist_id = ? "
                         "AND album_id = ? "
-                        "AND genre_id = ? "
                         "AND year = ? "
                         "AND name = ? "
                         "AND track = ? "
@@ -477,14 +467,10 @@ void MusicDatabase::AddTrack(const MusicInfo& attributes, string path, time_t mt
         CHECKERR(sqlite3_bind_int(prepared, 1, artistId));
         CHECKERR(sqlite3_bind_int(prepared, 2, albumartistId));
         CHECKERR(sqlite3_bind_int(prepared, 3, albumId));
-        CHECKERR(sqlite3_bind_int(prepared, 4, genreId));
-        CHECKERR(sqlite3_bind_int(prepared, 5, attributes.year()));
-        CHECKERR(sqlite3_bind_text(prepared, 6, title.c_str(), title.size(), nullptr));
-        CHECKERR(sqlite3_bind_int(prepared, 7, attributes.track()));
-        if (disc.empty())
-            CHECKERR(sqlite3_bind_null(prepared, 8));
-        else
-            CHECKERR(sqlite3_bind_text(prepared, 8, disc.c_str(), disc.size(), nullptr));
+        CHECKERR(sqlite3_bind_int(prepared, 4, attributes.year()));
+        CHECKERR(sqlite3_bind_text(prepared, 5, title.c_str(), title.size(), nullptr));
+        CHECKERR(sqlite3_bind_int(prepared, 6, attributes.track()));
+        CHECKERR(sqlite3_bind_text(prepared, 7, disc.c_str(), disc.size(), nullptr));
     };
 
     bindValues();
@@ -496,8 +482,8 @@ void MusicDatabase::AddTrack(const MusicInfo& attributes, string path, time_t mt
         // No track was found with that metadata. Make one.
 
         sqlite3_finalize(prepared);
-        stmt = "INSERT INTO track (artist_id, albumartist_id, album_id, genre_id, year, name, track, disc) "
-            "VALUES(?,?,?,?,?,?,?,?);";
+        stmt = "INSERT INTO track (artist_id, albumartist_id, album_id, year, name, track, disc) "
+            "VALUES(?,?,?,?,?,?,?);";
         CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
         bindValues();
 
@@ -545,13 +531,12 @@ void MusicDatabase::AddTrack(const MusicInfo& attributes, string path, time_t mt
 
 void MusicDatabase::GetAttributes(int file_id, MusicAttributes& attrs) const
 {
-    string stmt = "SELECT a1.name, a2.name, album.name, genre.name, t.year, t.track, t.disc, t.name, f.path "
+    string stmt = "SELECT a1.name, a2.name, album.name, t.year, t.track, t.disc, t.name, f.path "
                     "FROM file f "
                     "JOIN track t ON t.id = f.track_id "
                     "JOIN artist a1 ON a1.id = t.artist_id "
                     "JOIN artist a2 ON a2.id = t.albumartist_id "
                     "JOIN album ON album.id = t.album_id "
-                    "JOIN genre ON genre.id = t.genre_id "
                     "WHERE f.id = ?;";
     sqlite3_stmt *prepared;
     CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
@@ -565,34 +550,33 @@ void MusicDatabase::GetAttributes(int file_id, MusicAttributes& attrs) const
         attrs.Artist = STRCOL(0);
         attrs.AlbumArtist = STRCOL(1);
         attrs.Album = STRCOL(2);
-        attrs.Genre = STRCOL(3);
 
-        int year = sqlite3_column_int(prepared, 4);
+        int year = sqlite3_column_int(prepared, 3);
         if (year == 0)
             attrs.Year.clear();
         else
             attrs.Year = to_string(year);
 
-        int track = sqlite3_column_int(prepared, 5);
+        int track = sqlite3_column_int(prepared, 4);
         if (track == 0)
             attrs.Track.clear();
         else
             attrs.Track = to_string(track);
 
-        if (sqlite3_column_type(prepared,6) == SQLITE_NULL)
+        if (sqlite3_column_type(prepared,5) == SQLITE_NULL)
             attrs.Disc.clear();
         else
-            attrs.Disc = STRCOL(6);
+            attrs.Disc = STRCOL(5);
 
-        if (sqlite3_column_type(prepared, 7) == SQLITE_NULL)
+        if (sqlite3_column_type(prepared, 6) == SQLITE_NULL)
             attrs.Title.clear();
         else
-            attrs.Title = STRCOL(7);
+            attrs.Title = STRCOL(6);
 
-        if (sqlite3_column_type(prepared, 8) == SQLITE_NULL)
+        if (sqlite3_column_type(prepared, 7) == SQLITE_NULL)
             attrs.Path.clear();
         else
-            attrs.Path = STRCOL(8);
+            attrs.Path = STRCOL(7);
 
 #undef STRCOL
     }
@@ -708,7 +692,6 @@ void MusicDatabase::CleanTables()
 {
     CleanTable("artist");
     CleanTable("album");
-    CleanTable("genre");
 }
 
 vector<tuple<int, int, time_t, string>> MusicDatabase::GetFiles() const

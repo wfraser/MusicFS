@@ -60,7 +60,11 @@ string MusicInfo::albumartist() const
 
 string MusicInfo::disc() const
 {
-    return property("DISCNUMBER");
+    string disc = property("DISCNUMBER");
+    if (disc == "1/1")
+        return "";
+    else
+        return disc;
 }
 
 string MusicInfo::property(const string& name) const

@@ -166,7 +166,7 @@ vector<pair<int,int>> grovel(const string& base_path, MusicDatabase& db)
 
     INFO("Groveled " << groveled_count << " new/updated files.");
 
-    INFO("Removing un-referenced tracks, artists, albums, genres, and folders.");
+    INFO("Removing un-referenced tracks, artists, albums, and folders.");
     
     db.CleanTracks();
     db.CleanTables();

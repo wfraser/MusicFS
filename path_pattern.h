@@ -18,7 +18,6 @@ private:
             Artist,
             AlbumArtist,
             Album,
-            Genre,
             Year,
             Track,
             Title,

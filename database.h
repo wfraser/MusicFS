@@ -2,7 +2,7 @@
 
 struct MusicAttributes
 {
-    std::string Artist, AlbumArtist, Album, Genre, Year, Track, Disc, Title, Path;
+    std::string Artist, AlbumArtist, Album, Year, Track, Disc, Title, Path;
 };
 
 struct sqlite3;
