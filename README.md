@@ -52,7 +52,6 @@ Specify `-o pattern=<pattern>` when running MusicFS. The format of the pattern i
 * %artist%
 * %album%
 * %year%
-* %genre%
 * %track%
 * %title%
 * %ext%
