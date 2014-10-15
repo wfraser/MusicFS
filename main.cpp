@@ -36,14 +36,9 @@ struct musicfs_opts
     MusicDatabase *db;
     char *database_path;
     time_t startup_time;
+    vector<string> extension_priority;
 };
 static musicfs_opts musicfs = {};
-
-void usage()
-{
-    //TODO
-    cout << "usage\n";
-}
 
 int stat_real_file(const char *path, struct stat *stbuf)
 {
@@ -150,17 +145,14 @@ int musicfs_opendir(const char *path, fuse_file_info *fi)
     return 0;
 }
 
-//TODO: make this configurable at runtime
-static const vector<string> s_extensionPriority = { ".flac", ".mp3", "*" };
-
 int filetype_ranking(const string& path)
 {
     if (path.size() == 0)
         return 1;
 
-    for (int i = 0, n = static_cast<int>(s_extensionPriority.size()); i < n; i++)
+    for (int i = 0, n = static_cast<int>(musicfs.extension_priority.size()); i < n; i++)
     {
-        const string& ext = s_extensionPriority[i];
+        const string& ext = musicfs.extension_priority[i];
         if ((ext == "*") || iendsWith(path, ext))
             return -1;
     }
@@ -279,7 +271,7 @@ enum
     KEY_DEBUG,
     KEY_HELP,
     KEY_VERSION,
-    KEY_PATTERN,
+    KEY_EXTENSIONS,
 };
 
 enum
@@ -289,10 +281,44 @@ enum
     FUSE_OPT_KEEP = 1
 };
 
+void usage()
+{
+    cerr <<
+    // Limit to 80 columns:
+    //   ###############################################################################
+        "usage: musicfs [options] <backing> <mount point>\n"
+        "\n"
+        "MusicFS options:\n"
+        "   -o backing_fs           Path to source music files (required here or\n"
+        "                               as the first non-option argument)\n"
+        "   -o pattern              Path generation pattern. A string containing any\n"
+        "                               of the following: %albumartist%, %artist%,\n"
+        "                               %album%, %year%, %track%, %title%, %ext%.\n"
+        "                               Defaults to: \"%albumartist%/[%year%] %album%/\n"
+        "                               %track% - %title%.%ext%\"\n"
+        "   -o database             Path to the database file to be used. Defaults to\n"
+        "                               music.db in the current directory.\n"
+        "   -o extensions           Semicolon-delimited list of file extensions. When\n"
+        "                               multiple files are available for the same\n"
+        "                               track, extensions earlier in this list will be\n"
+        "                               given precedence and hide the others. End with\n"
+        "                               a '*' to include un-matched files. Defaults to\n"
+        "                               \".flac;.mp3;*\"\n"
+        "   -o\n"
+        "   -v\n"
+        "   --verbose               Enable informational messages.\n"
+        "   -d\n"
+        "   --debug\n"
+        "   -o debug                Enable debugging mode. MusicFS will not fork to\n"
+        "                               background, and enables all debugging messages.\n"
+        "\n";
+}
+
 static fuse_opt musicfs_opts_spec[] = {
     { "backing_fs=%s",  offsetof(struct musicfs_opts, backing_fs),      0 },
     { "pattern=%s",     offsetof(struct musicfs_opts, pattern),         0 },
     { "database=%s",    offsetof(struct musicfs_opts, database_path),   0 },
+    FUSE_OPT_KEY("extensions=%s", KEY_EXTENSIONS),
     FUSE_OPT_KEY("verbose",     KEY_VERBOSE),
     FUSE_OPT_KEY("-v",          KEY_VERBOSE),
     FUSE_OPT_KEY("--verbose",   KEY_VERBOSE),
@@ -333,6 +359,26 @@ int musicfs_opt_proc(void *data, const char *arg, int key,
             cerr << "MusicFS: too many arguments: don't know what to do with \""
                 << arg << "\"\n";
             return FUSE_OPT_ERROR;
+        }
+        break;
+
+    case KEY_EXTENSIONS:
+        for ( ; *arg != '\0' && *arg != '='; arg++) ; // Skip to the '='.
+            arg++;
+        for (size_t start = 0, end = 0; ; end++)
+        {
+            if (arg[end] == ';' || arg[end] == '\0')
+            {
+                string ext(arg + start, (end - start));
+                if (ext != "*")
+                {
+                    ext = "." + ext;
+                }
+                musicfs.extension_priority.push_back(ext);
+                start = end + 1;
+            }
+            if (arg[end] == '\0')
+                break;
         }
         break;
 
@@ -406,6 +452,14 @@ int main(int argc, char **argv)
     }
 
     PathPattern pathPattern(musicfs.pattern);
+
+    if (musicfs.extension_priority.size() == 0)
+    {
+        musicfs.extension_priority = { ".flac", ".mp3", "*" };
+    }
+
+    INFO("File extension priority: ");
+    for (const auto& ext : musicfs.extension_priority) INFO("\t" << ext);
 
     if (musicfs.database_path == nullptr)
     {
