@@ -19,22 +19,26 @@ public:
     MusicDatabase& operator=(const MusicDatabase&) = delete;
     MusicDatabase(MusicDatabase&&) = delete;
 
-    void AddTrack(const MusicInfo& attributes, std::string filename, time_t mtime, int *outId);
-    void RemoveTrack(int id);
-    std::vector<std::tuple<int, time_t, std::string>> GetTracks() const;
-    void GetAttributes(int track_id, MusicAttributes& attributes) const;
+    void AddTrack(const MusicInfo& attributes, std::string filename, time_t mtime, int *out_track_id, int *out_file_id);
+    void RemoveFile(int id);
+    std::vector<std::tuple<int, int, time_t, std::string>> GetFiles() const;
+    void GetAttributes(int file_id, MusicAttributes& attributes) const;
 
     void ClearPaths();
     bool GetRealPath(const std::string& path, std::string& pathOut) const;
     int GetPathId(const std::string& path) const;
-    int AddPath(const std::string& path, int parent_id, int track_id);
-    std::vector<std::string> GetChildrenOfPath(int parent_id) const;
+    int AddPath(const std::string& path, int parent_id, int track_id, int file_id);
+    std::vector<std::string> GetChildrenOfPath(
+        int parent_id,
+        const std::function<bool(const std::string&, const std::string&)>& file_preference
+        ) const;
     
     void BeginTransaction();
     void EndTransaction();
 
     void CleanTables();
     void CleanPaths();
+    void CleanTracks();
 
 private:
 

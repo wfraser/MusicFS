@@ -11,3 +11,9 @@ inline std::string join(const std::vector<std::string>& vec, const std::string& 
     }
     return result.str();
 }
+
+inline bool iendsWith(const std::string& haystack, const std::string& needle)
+{
+    return (haystack.size() >= needle.size())
+        && (strcasecmp(needle.c_str(), haystack.c_str() + (haystack.size() - needle.size())) == 0);
+}

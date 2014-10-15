@@ -1,6 +1,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <functional>
 
 #include "logging.h"
 #include "database.h"

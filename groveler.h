@@ -1,6 +1,6 @@
 #pragma once
 
-std::vector<int> grovel(
+std::vector<std::pair<int,int>> grovel(
     const std::string& path,
     MusicDatabase& db
     );
@@ -8,5 +8,5 @@ std::vector<int> grovel(
 void build_paths(
     MusicDatabase& db,
     const PathPattern& pathPattern,
-    const std::vector<int>& track_ids
+    const std::vector<std::pair<int,int>>& track_file_ids
     );

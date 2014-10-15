@@ -19,7 +19,7 @@
 
 using namespace std;
 
-vector<int> grovel(const string& base_path, MusicDatabase& db)
+vector<pair<int,int>> grovel(const string& base_path, MusicDatabase& db)
 {
     deque<string> directories;
     directories.push_back(base_path);
@@ -80,24 +80,25 @@ vector<int> grovel(const string& base_path, MusicDatabase& db)
 
     INFO("Checking database freshness...");
 
-    vector<tuple<int, time_t, string>> tracks = db.GetTracks();
+    vector<tuple<int, int, time_t, string>> db_files = db.GetFiles();
 
-    INFO("Got " << tracks.size() << " tracks from database.");
+    INFO("Got " << db_files.size() << " files from database.");
 
     size_t skipped_count = 0;
     size_t removed_count = 0;
-    for (const auto& t : tracks)
+    for (const auto& f : db_files)
     {
-        int trackId = get<0>(t);
-        time_t mtime = get<1>(t);
-        const string& path = base_path + get<2>(t);
+        int fileId = get<0>(f);
+        //int trackId = get<1>(f);
+        time_t mtime = get<2>(f);
+        const string& path = base_path + get<3>(f);
 
         auto pos = find(files.begin(), files.end(), path);
 
         if (pos == files.end())
         {
             DEBUG("File not found; removing from DB: " << path);
-            db.RemoveTrack(trackId);
+            db.RemoveFile(fileId);
             removed_count++;
         }
         else
@@ -121,7 +122,7 @@ vector<int> grovel(const string& base_path, MusicDatabase& db)
             {
                 // TODO: don't do this, but do an update instead.
                 DEBUG("File has changed; removing from DB: " << path);
-                db.RemoveTrack(trackId);
+                db.RemoveFile(fileId);
             }
         }
     }
@@ -131,7 +132,7 @@ vector<int> grovel(const string& base_path, MusicDatabase& db)
 
     // Next, get metadata for remaining files and add to database.
 
-    vector<int> groveled_ids;
+    vector<pair<int,int>> groveled_ids;
 
     size_t groveled_count = 0;
     while (!files.empty())
@@ -152,10 +153,10 @@ vector<int> grovel(const string& base_path, MusicDatabase& db)
                 continue;
             }
 
-            int id;
-            db.AddTrack(info, partial_path, s.st_mtime, &id);
+            int track_id, file_id;
+            db.AddTrack(info, partial_path, s.st_mtime, &track_id, &file_id);
             groveled_count++;
-            groveled_ids.push_back(id);
+            groveled_ids.emplace_back(track_id, file_id);
         }
         else
         {
@@ -163,10 +164,11 @@ vector<int> grovel(const string& base_path, MusicDatabase& db)
         }
     }
 
-    INFO("Groveled " << groveled_count << " new/updated tracks.");
+    INFO("Groveled " << groveled_count << " new/updated files.");
 
-    INFO("Removing un-referenced artists, albums, genres, and folders.");
+    INFO("Removing un-referenced tracks, artists, albums, genres, and folders.");
     
+    db.CleanTracks();
     db.CleanTables();
     db.CleanPaths();
 
@@ -176,16 +178,19 @@ vector<int> grovel(const string& base_path, MusicDatabase& db)
 void build_paths(
     MusicDatabase& db,
     const PathPattern& pathPattern,
-    const vector<int>& track_ids
+    const vector<pair<int,int>>& track_file_ids
     )
 {
     unordered_map<string, int> paths;
     size_t num_path_levels = pathPattern.GetNumPathLevels();
 
-    for (int track_id : track_ids)
+    for (pair<int, int> ids : track_file_ids)
     {
+        int track_id = get<0>(ids);
+        int file_id  = get<1>(ids);
+
         MusicAttributes attrs;
-        db.GetAttributes(track_id, attrs);
+        db.GetAttributes(file_id, attrs);
 
         int parent_id = 0;
         string path;
@@ -198,7 +203,12 @@ void build_paths(
             if (pos == paths.end())
             {
                 DEBUG("adding path: " << path);
-                parent_id = db.AddPath(path, parent_id, (level == num_path_levels - 1) ? track_id : 0);
+                parent_id = db.AddPath(
+                    path,
+                    parent_id,
+                    (level == num_path_levels - 1) ? track_id : 0,
+                    (level == num_path_levels - 1) ? file_id  : 0
+                    );
                 paths.emplace(path, parent_id);
             }
             else

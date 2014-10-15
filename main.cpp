@@ -150,13 +150,35 @@ int musicfs_opendir(const char *path, fuse_file_info *fi)
     return 0;
 }
 
+//TODO: make this configurable at runtime
+static const vector<string> s_extensionPriority = { ".flac", ".mp3", "*" };
+
+int filetype_ranking(const string& path)
+{
+    if (path.size() == 0)
+        return 1;
+
+    for (int i = 0, n = static_cast<int>(s_extensionPriority.size()); i < n; i++)
+    {
+        const string& ext = s_extensionPriority[i];
+        if ((ext == "*") || iendsWith(path, ext))
+            return -1;
+    }
+
+    return 2;
+}
+
+int file_preference(const string& a, const string& b)
+{
+    return filetype_ranking(a) < filetype_ranking(b);
+}
+
 int musicfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi)
 {
     DEBUG("readdir " << path);
 
     int path_id = fi->fh;
-
-    vector<string> entries = musicfs.db->GetChildrenOfPath(path_id);
+    vector<string> entries = musicfs.db->GetChildrenOfPath(path_id, file_preference);
 
     filler(buf, ".", nullptr, 0);
     filler(buf, "..", nullptr, 0);
@@ -406,7 +428,10 @@ int main(int argc, char **argv)
     db.BeginTransaction();
 
     cout << "Groveling music. This may take a while...\n";
-    vector<int> groveled_ids = grovel(musicfs.backing_fs, db);
+    vector<pair<int,int>> groveled_ids = grovel(musicfs.backing_fs, db);
+
+    db.EndTransaction();
+    db.BeginTransaction();
 
     cout << "Computing paths...\n";
     build_paths(db, pathPattern, groveled_ids);

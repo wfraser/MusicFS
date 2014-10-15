@@ -4,8 +4,11 @@
 #include <memory>
 #include <sstream>
 #include <unordered_set>
+#include <unordered_map>
 #include <utility>
 #include <regex>
+#include <algorithm>
+#include <assert.h>
 
 #include <sqlite3.h>
 
@@ -47,19 +50,26 @@ static vector<string> s_tableStatements =
         "name           TEXT    NOT NULL, "
         "track          INTEGER, "
         "disc           TEXT, "
-        "path           TEXT    NOT NULL, "
-        "mtime          INTEGER NOT NULL, "
         "FOREIGN KEY(artist_id)      REFERENCES artist(id)  ON DELETE RESTRICT, "
         "FOREIGN KEY(albumartist_id) REFERENCES artist(id)  ON DELETE RESTRICT, "
         "FOREIGN KEY(album_id)       REFERENCES album(id)   ON DELETE RESTRICT, "
         "FOREIGN KEY(genre_id)       REFERENCES genre(id)   ON DELETE RESTRICT "
         ");",
+    "CREATE TABLE IF NOT EXISTS file ( "
+        "id             INTEGER PRIMARY KEY, "
+        "track_id       INTEGER NOT NULL, "
+        "path           TEXT, "
+        "mtime          TEXT    NOT NULL, "
+        "FOREIGN KEY(track_id)      REFERENCES track(id)    ON DELETE RESTRICT "
+        ");",
     "CREATE TABLE IF NOT EXISTS path ( "
         "id             INTEGER PRIMARY KEY, "
         "path           TEXT    NOT NULL UNIQUE ON CONFLICT IGNORE, "
         "track_id       INTEGER, "
+        "file_id        INTEGER, "
         "parent_id      INTEGER, "
         "FOREIGN KEY(track_id)      REFERENCES track(id)    ON DELETE CASCADE, "
+        "FOREIGN KEY(file_id)       REFERENCES file(id)     ON DELETE CASCADE, "
         "FOREIGN KEY(parent_id)     REFERENCES path(id)     ON DELETE CASCADE "
         ");"
 };
@@ -197,7 +207,7 @@ void MusicDatabase::ClearPaths()
 
 bool MusicDatabase::GetRealPath(const string& path, string& pathOut) const
 {
-    string stmt = "SELECT track.path FROM path LEFT JOIN track ON track.id = path.track_id WHERE path.path = ?;";
+    string stmt = "SELECT file.path FROM path LEFT JOIN file ON file.id = path.file_id WHERE path.path = ?;";
 
     sqlite3_stmt *prepared;
     CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
@@ -244,10 +254,13 @@ int MusicDatabase::GetPathId(const string& path) const
     return id;
 }
 
-int MusicDatabase::AddPath(const std::string& path, int parent_id, int track_id)
+int MusicDatabase::AddPath(const std::string& path, int parent_id, int track_id, int file_id)
 {
-    string stmt = "INSERT OR ABORT INTO path (path, parent_id, track_id) "
-                        "VALUES (?,?,?);";
+    // Both track_id and file_id must be zero, or both must be non-zero.
+    assert((track_id == 0) == (file_id == 0));
+
+    string stmt = "INSERT OR ABORT INTO path (path, parent_id, track_id, file_id) "
+                        "VALUES (?,?,?,?);";
 
     sqlite3_stmt *prepared;
     CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
@@ -263,6 +276,11 @@ int MusicDatabase::AddPath(const std::string& path, int parent_id, int track_id)
         CHECKERR(sqlite3_bind_null(prepared, 3));
     else
         CHECKERR(sqlite3_bind_int(prepared, 3, track_id));
+
+    if (file_id == 0)
+        CHECKERR(sqlite3_bind_null(prepared, 4));
+    else
+        CHECKERR(sqlite3_bind_int(prepared, 4, file_id));
 
     int path_id = 0;
     int result = sqlite3_step(prepared);
@@ -298,12 +316,18 @@ int MusicDatabase::AddPath(const std::string& path, int parent_id, int track_id)
     return path_id;
 }
 
-vector<string> MusicDatabase::GetChildrenOfPath(int parent_id) const
+vector<string> MusicDatabase::GetChildrenOfPath(
+    int parent_id,
+    const function<bool(const string&, const string&)>& file_preference
+    ) const
 {
     vector<string> results;
+    unordered_map<int, vector<pair<string, string>>> files_by_track;
 
-    string stmt = "SELECT path.path "
+    string stmt = "SELECT path.path, track.id, file.path "
                     "FROM path "
+                    "LEFT JOIN track ON track.id = path.track_id "
+                    "LEFT JOIN file ON file.id = path.file_id "
                     "WHERE path.parent_id ";
 
     if (parent_id == 0)
@@ -321,7 +345,22 @@ vector<string> MusicDatabase::GetChildrenOfPath(int parent_id) const
     while ((result = sqlite3_step(prepared)) == SQLITE_ROW)
     {
         const char* childPath = reinterpret_cast<const char*>(sqlite3_column_text(prepared, 0));
-        results.emplace_back(childPath);
+        int track_id = sqlite3_column_int(prepared, 1);
+        if (track_id == 0)
+        {
+            // Row represents a directory, not a file. Insert into result set directly.
+            results.emplace_back(childPath);
+        }
+        else
+        {
+            // Row represents a track and file. Add to the map.
+            const char* filePath = reinterpret_cast<const char*>(sqlite3_column_text(prepared, 2));
+
+            if (files_by_track.find(track_id) == files_by_track.end())
+                files_by_track.emplace(track_id, vector<pair<string, string>>({}));
+
+            files_by_track[track_id].emplace_back(filePath, childPath);
+        }
     }
     if (result != SQLITE_DONE)
     {
@@ -329,6 +368,29 @@ vector<string> MusicDatabase::GetChildrenOfPath(int parent_id) const
     }
 
     sqlite3_finalize(prepared);
+
+    for (auto& track_pair : files_by_track)
+    {
+        vector<pair<string, string>>& files = track_pair.second;
+        auto pair_unpacker = [file_preference](const pair<string, string>& p1, const pair<string, string>& p2)
+        {
+            return file_preference(p1.first, p2.first);
+        };
+        stable_sort(files.begin(), files.end(), pair_unpacker);
+
+        //DEBUG
+        INFO("track id: " << track_pair.first);
+        for (const auto& pair : files)
+        {
+            INFO(pair.first << " # " << pair.second);
+        }
+
+        // If the preference function prefers empty string to the best file path, that means nothing is selected.
+        if (file_preference(files.front().first, ""))
+        {
+            results.emplace_back(move(files.front().second));
+        }
+    }
 
     return results;
 }
@@ -364,7 +426,7 @@ void MusicDatabase::AddRow(const char *table, std::string value, int *outId)
     sqlite3_finalize(prepared);
 }
 
-void MusicDatabase::AddTrack(const MusicInfo& attributes, string path, time_t mtime, int *outId)
+void MusicDatabase::AddTrack(const MusicInfo& attributes, string path, time_t mtime, int *out_track_id, int *out_file_id)
 {
     DEBUG("Adding track: " << path);
 
@@ -393,32 +455,81 @@ void MusicDatabase::AddTrack(const MusicInfo& attributes, string path, time_t mt
         DEBUG("adding genre " << attributes.genre());
         AddRow("genre", attributes.genre(), &genreId);
     }
-
-    string trackStmt = "INSERT INTO track (artist_id, albumartist_id, album_id, genre_id, year, name, track, disc, path, mtime) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?);";
-    sqlite3_stmt *prepared;
-    CHECKERR(sqlite3_prepare_v2(m_dbHandle, trackStmt.c_str(), trackStmt.size(), &prepared, nullptr));
-
+    
+    // Bind these to local strings so we control their lifetimes.
     string title = attributes.title();
-
-    CHECKERR(sqlite3_bind_int(prepared, 1, artistId));
-    CHECKERR(sqlite3_bind_int(prepared, 2, albumartistId));
-    CHECKERR(sqlite3_bind_int(prepared, 3, albumId));
-    CHECKERR(sqlite3_bind_int(prepared, 4, genreId));
-    CHECKERR(sqlite3_bind_int(prepared, 5, attributes.year()));
-    CHECKERR(sqlite3_bind_text(prepared, 6, title.c_str(), title.size(), nullptr));
-    CHECKERR(sqlite3_bind_int(prepared, 7, attributes.track()));
-
     string disc = attributes.disc();
-    if (disc.empty())
-        CHECKERR(sqlite3_bind_null(prepared, 8));
-    else
-        CHECKERR(sqlite3_bind_text(prepared, 8, disc.c_str(), disc.size(), nullptr));
 
-    CHECKERR(sqlite3_bind_text(prepared, 9, path.c_str(), path.size(), nullptr));
-    CHECKERR(sqlite3_bind_int(prepared, 10, mtime));
+    string stmt = "SELECT id FROM track "
+                    "WHERE artist_id = ? "
+                        "AND albumartist_id = ? "
+                        "AND album_id = ? "
+                        "AND genre_id = ? "
+                        "AND year = ? "
+                        "AND name = ? "
+                        "AND track = ? "
+                        "AND disc = ?;";
+    sqlite3_stmt *prepared;
+    CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
 
+    auto bindValues = [&]()
+    {    
+        CHECKERR(sqlite3_bind_int(prepared, 1, artistId));
+        CHECKERR(sqlite3_bind_int(prepared, 2, albumartistId));
+        CHECKERR(sqlite3_bind_int(prepared, 3, albumId));
+        CHECKERR(sqlite3_bind_int(prepared, 4, genreId));
+        CHECKERR(sqlite3_bind_int(prepared, 5, attributes.year()));
+        CHECKERR(sqlite3_bind_text(prepared, 6, title.c_str(), title.size(), nullptr));
+        CHECKERR(sqlite3_bind_int(prepared, 7, attributes.track()));
+        if (disc.empty())
+            CHECKERR(sqlite3_bind_null(prepared, 8));
+        else
+            CHECKERR(sqlite3_bind_text(prepared, 8, disc.c_str(), disc.size(), nullptr));
+    };
+
+    bindValues();
+
+    int track_id = 0;
     int result = sqlite3_step(prepared);
+    if (result == SQLITE_DONE)
+    {
+        // No track was found with that metadata. Make one.
+
+        sqlite3_finalize(prepared);
+        stmt = "INSERT INTO track (artist_id, albumartist_id, album_id, genre_id, year, name, track, disc) "
+            "VALUES(?,?,?,?,?,?,?,?);";
+        CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
+        bindValues();
+
+        result = sqlite3_step(prepared);
+        if (result == SQLITE_DONE)
+        {
+            track_id = sqlite3_last_insert_rowid(m_dbHandle);
+        }
+        else
+        {
+            CHECKERR(result);
+        }
+    }
+    else if (result == SQLITE_ROW)
+    {
+        track_id = sqlite3_column_int(prepared, 0);
+    }
+    else
+    {
+        CHECKERR(result);
+    }
+
+    sqlite3_finalize(prepared);
+
+    stmt = "INSERT INTO file (track_id, path, mtime) VALUES(?,?,?);";
+    CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
+
+    CHECKERR(sqlite3_bind_int(prepared, 1, track_id));
+    CHECKERR(sqlite3_bind_text(prepared, 2, path.c_str(), path.size(), nullptr));
+    CHECKERR(sqlite3_bind_int(prepared, 3, mtime));
+
+    result = sqlite3_step(prepared);
     if (result != SQLITE_DONE)
     {
         CHECKERR(result);
@@ -426,22 +537,25 @@ void MusicDatabase::AddTrack(const MusicInfo& attributes, string path, time_t mt
 
     sqlite3_finalize(prepared);
 
-    if (outId != nullptr)
-        *outId = sqlite3_last_insert_rowid(m_dbHandle);
+    if (out_file_id != nullptr)
+        *out_file_id = sqlite3_last_insert_rowid(m_dbHandle);
+    if (out_track_id != nullptr)
+        *out_track_id = track_id;
 }
 
-void MusicDatabase::GetAttributes(int track_id, MusicAttributes& attrs) const
+void MusicDatabase::GetAttributes(int file_id, MusicAttributes& attrs) const
 {
-    string stmt = "SELECT a1.name, a2.name, album.name, genre.name, t.year, t.track, t.disc, t.name, t.path "
-                    "FROM track t "
+    string stmt = "SELECT a1.name, a2.name, album.name, genre.name, t.year, t.track, t.disc, t.name, f.path "
+                    "FROM file f "
+                    "JOIN track t ON t.id = f.track_id "
                     "JOIN artist a1 ON a1.id = t.artist_id "
                     "JOIN artist a2 ON a2.id = t.albumartist_id "
                     "JOIN album ON album.id = t.album_id "
                     "JOIN genre ON genre.id = t.genre_id "
-                    "WHERE t.id = ?;";
+                    "WHERE f.id = ?;";
     sqlite3_stmt *prepared;
     CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
-    CHECKERR(sqlite3_bind_int(prepared, 1, track_id));
+    CHECKERR(sqlite3_bind_int(prepared, 1, file_id));
 
     int result = sqlite3_step(prepared);
     if (result == SQLITE_ROW)
@@ -521,6 +635,28 @@ void MusicDatabase::CleanTable(const char *table)
     }
 }
 
+void MusicDatabase::CleanTracks()
+{
+    string stmt = "DELETE FROM track WHERE NOT EXISTS ("
+                        "SELECT NULL "
+                        "FROM file "
+                        "WHERE file.track_id = track.id"
+                    ")";
+    sqlite3_stmt *prepared;
+    CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
+    int result = sqlite3_step(prepared);
+    if (result != SQLITE_DONE)
+    {
+        CHECKERR(result);
+    }
+
+    int count = sqlite3_changes(m_dbHandle);
+    if (count > 0)
+    {
+        DEBUG("Cleaned " << count << " tracks with no files.");
+    }
+}
+
 void MusicDatabase::CleanPaths()
 {
     string stmt = "DELETE "
@@ -552,12 +688,12 @@ void MusicDatabase::CleanPaths()
     sqlite3_finalize(prepared);
 }
 
-void MusicDatabase::RemoveTrack(int trackId)
+void MusicDatabase::RemoveFile(int file_id)
 {
     sqlite3_stmt *prepared;
-    string stmt = "DELETE FROM track WHERE id = ?;";
+    string stmt = "DELETE FROM file WHERE id = ?;";
     CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
-    CHECKERR(sqlite3_bind_int(prepared, 1, trackId));
+    CHECKERR(sqlite3_bind_int(prepared, 1, file_id));
     
     int result = sqlite3_step(prepared);
     if (result != SQLITE_DONE)
@@ -575,22 +711,23 @@ void MusicDatabase::CleanTables()
     CleanTable("genre");
 }
 
-vector<tuple<int, time_t, string>> MusicDatabase::GetTracks() const
+vector<tuple<int, int, time_t, string>> MusicDatabase::GetFiles() const
 {
-    vector<tuple<int, time_t, string>> results;
+    vector<tuple<int, int, time_t, string>> results;
 
     sqlite3_stmt *prepared;
-    string stmt = "SELECT id, mtime, path FROM track;";
+    string stmt = "SELECT file.id, file.track_id, file.mtime, file.path FROM file;";
     CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
 
     int result;
     while ((result = sqlite3_step(prepared)) == SQLITE_ROW)
     {
         int id = sqlite3_column_int(prepared, 0);
-        time_t mtime = sqlite3_column_int64(prepared, 1);
-        string path = reinterpret_cast<const char*>(sqlite3_column_text(prepared, 2));
+        int track_id = sqlite3_column_int(prepared, 1);
+        time_t mtime = sqlite3_column_int64(prepared, 2);
+        string path = reinterpret_cast<const char*>(sqlite3_column_text(prepared, 3));
 
-        results.emplace_back(id, mtime, path);
+        results.emplace_back(id, track_id, mtime, path);
     }
     if (result != SQLITE_DONE)
     {
