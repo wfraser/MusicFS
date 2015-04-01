@@ -138,6 +138,8 @@ vector<pair<int,int>> grovel(const string& base_path, MusicDatabase& db)
     INFO("Skipping " << skipped_count << " fresh tracks.");
 
     // Next, get metadata for remaining files and add to database.
+    
+    INFO("Extracting metadata from " << files.size() << " files...");
 
     vector<pair<int,int>> groveled_ids;
 
