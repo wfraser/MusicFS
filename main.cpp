@@ -21,6 +21,7 @@ bool musicfs_log_stderr = false;
 #include "musicinfo.h"
 #include "database.h"
 #include "path_pattern.h"
+#include "aliases.h"
 #include "groveler.h"
 
 using namespace std;
@@ -37,6 +38,7 @@ struct musicfs_opts
     char *database_path;
     time_t startup_time;
     vector<string> extension_priority;
+    string aliases_conf;
 };
 static musicfs_opts musicfs = {};
 
@@ -272,6 +274,7 @@ enum
     KEY_HELP,
     KEY_VERSION,
     KEY_EXTENSIONS,
+    KEY_ALIASES,
 };
 
 enum
@@ -303,7 +306,7 @@ void usage()
         "                               track, extensions earlier in this list will be\n"
         "                               given precedence and hide the others. End with\n"
         "                               a '*' to include un-matched files. Defaults to\n"
-        "                               \".flac;.mp3;*\"\n"
+        "                               \"flac;mp3;*\"\n"
         "   -o\n"
         "   -v\n"
         "   --verbose               Enable informational messages.\n"
@@ -319,6 +322,7 @@ static fuse_opt musicfs_opts_spec[] = {
     { "pattern=%s",     offsetof(struct musicfs_opts, pattern),         0 },
     { "database=%s",    offsetof(struct musicfs_opts, database_path),   0 },
     FUSE_OPT_KEY("extensions=%s", KEY_EXTENSIONS),
+    FUSE_OPT_KEY("aliases=%s",  KEY_ALIASES),
     FUSE_OPT_KEY("verbose",     KEY_VERBOSE),
     FUSE_OPT_KEY("-v",          KEY_VERBOSE),
     FUSE_OPT_KEY("--verbose",   KEY_VERBOSE),
@@ -363,8 +367,12 @@ int musicfs_opt_proc(void *data, const char *arg, int key,
         break;
 
     case KEY_EXTENSIONS:
-        for ( ; *arg != '\0' && *arg != '='; arg++) ; // Skip to the '='.
+        // Skip to the '='.
+        while (*arg != '\0' && *arg != '=')
             arg++;
+        if (*arg == '=')
+            arg++;
+
         for (size_t start = 0, end = 0; ; end++)
         {
             if (arg[end] == ';' || arg[end] == '\0')
@@ -381,6 +389,14 @@ int musicfs_opt_proc(void *data, const char *arg, int key,
                 break;
         }
         break;
+
+    case KEY_ALIASES:
+        while (*arg != '\0' && *arg != '=')
+            arg++;
+        if (*arg == '=')
+            arg++;
+        musicfs.aliases_conf = string(arg);
+        return FUSE_OPT_DISCARD;
 
     case KEY_VERBOSE:
         musicfs_log_level = LOG_LEVEL_INFO;
@@ -416,6 +432,8 @@ int musicfs_opt_proc(void *data, const char *arg, int key,
 
 int main(int argc, char **argv)
 {
+    DEBUG("Version " MUSICFS_VERSION);
+
     musicfs_init_fuse_operations();
 
     fuse_args args = FUSE_ARGS_INIT(argc, argv);
@@ -425,8 +443,6 @@ int main(int argc, char **argv)
         cerr << "MusicFS: argument parsing failed.\n";
         return 1;
     }
-
-    DEBUG("Version " MUSICFS_VERSION);
 
     if (num_nonopt_args_read > 0)
     {
@@ -479,6 +495,22 @@ int main(int argc, char **argv)
     cout << "Opening database (" << musicfs.database_path << ")...\n";
     MusicDatabase db(musicfs.database_path);
 
+    ArtistAliases aliases;
+    if (!musicfs.aliases_conf.empty())
+    {
+        DEBUG("Artist aliases file: " << musicfs.aliases_conf);
+        ArtistAliases aliases;
+        bool ok = aliases.ParseFile(musicfs.aliases_conf);
+        if (!ok)
+        {
+            cerr << "MusicFS: specified artist aliases file \""
+                << musicfs.aliases_conf
+                << "\" could not be opened: "
+                << strerror(errno) << endl;
+            return -1;
+        }
+    }
+
     db.BeginTransaction();
 
     cout << "Groveling music. This may take a while...\n";
@@ -488,7 +520,7 @@ int main(int argc, char **argv)
     db.BeginTransaction();
 
     cout << "Computing paths...\n";
-    build_paths(db, pathPattern, groveled_ids);
+    build_paths(db, pathPattern, groveled_ids, aliases);
 
     db.EndTransaction();
 

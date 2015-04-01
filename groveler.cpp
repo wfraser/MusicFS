@@ -15,6 +15,7 @@
 #include "musicinfo.h"
 #include "database.h"
 #include "path_pattern.h"
+#include "aliases.h"
 #include "groveler.h"
 
 using namespace std;
@@ -178,7 +179,8 @@ vector<pair<int,int>> grovel(const string& base_path, MusicDatabase& db)
 void build_paths(
     MusicDatabase& db,
     const PathPattern& pathPattern,
-    const vector<pair<int,int>>& track_file_ids
+    const vector<pair<int,int>>& track_file_ids,
+    const ArtistAliases& aliases
     )
 {
     unordered_map<string, int> paths;
@@ -191,6 +193,13 @@ void build_paths(
 
         MusicAttributes attrs;
         db.GetAttributes(file_id, attrs);
+
+        const string *artist = aliases.Lookup(attrs.Artist);
+        if (artist != nullptr)
+            attrs.Artist = *artist;
+        const string *albumartist = aliases.Lookup(attrs.AlbumArtist);
+        if (albumartist != nullptr)
+            attrs.AlbumArtist = *albumartist;
 
         int parent_id = 0;
         string path;

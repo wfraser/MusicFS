@@ -45,7 +45,7 @@ static vector<string> s_tableStatements =
         "albumartist_id INTEGER NOT NULL, "
         "album_id       INTEGER NOT NULL, "
         "year           INTEGER NOT NULL, "
-        "name           TEXT    NOT NULL, "
+        "name           TEXT    NOT NULL COLLATE NOCASE, "
         "track          INTEGER NOT NULL, "
         "disc           TEXT    NOT NULL, "
         "FOREIGN KEY(artist_id)      REFERENCES artist(id)  ON DELETE RESTRICT, "
@@ -386,6 +386,10 @@ vector<string> MusicDatabase::GetChildrenOfPath(
         if (file_preference(files.front().first, ""))
         {
             results.emplace_back(move(files.front().second));
+        }
+        else
+        {
+            DEBUG("removed by file preference");
         }
     }
 

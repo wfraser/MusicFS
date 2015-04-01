@@ -1,9 +1,17 @@
 1. Need to add logic to present only the best file format when multiple are available for a given track.
     Right now, all are presented side-by-side.
     Fixing this is a work in progress.
-    a. The extension preference should be configurable at runtime.
-    b. Empty directories (ones made empty by filtering) should not be shown.
+    a. Empty directories (ones made empty by filtering) should not be shown.
         i. This might be expensive to compute...
 
 2. Attributes on directories are wrong:
     a. Link counts are hard-coded to 1. Probably not an actual source of problems, but still ugly.
+
+3. Compilation albums should show up under artists' directories (if we also have tracks with that artist as the albumartist).
+
+4. Changes to configuration should not require rebuilding the whole database.
+    a. Configuration must be stored in the DB for this to work.
+    b. Changes to aliases will require rebuilding paths.
+
+5. Multiple source directories should be allowed.
+    a. This probably requires changing the database file table to specify absolute paths instead of relative to the backing FS path.
