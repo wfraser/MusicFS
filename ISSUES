@@ -1,8 +1,4 @@
-1. Need to add logic to present only the best file format when multiple are available for a given track.
-    Right now, all are presented side-by-side.
-    Fixing this is a work in progress.
-    a. Empty directories (ones made empty by filtering) should not be shown.
-        i. This might be expensive to compute...
+1. Empty directories (ones made empty by file extension filtering) should not be shown.
 
 2. Attributes on directories are wrong:
     a. Link counts are hard-coded to 1. Probably not an actual source of problems, but still ugly.
