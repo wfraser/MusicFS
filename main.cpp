@@ -1,3 +1,9 @@
+//
+// MusicFS :: Program Entry Point and Filesystem Functions
+//
+// Copyright (c) 2014-2015 by William R. Fraser
+//
+
 #include <fuse.h>
 #include <fuse_opt.h>
 

@@ -1,3 +1,9 @@
+//
+// MusicFS :: File System Scanner ("Groveler")
+//
+// Copyright (c) 2014-2015 by William R. Fraser
+//
+
 #pragma once
 
 class ArtistAliases;

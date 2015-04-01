@@ -1,3 +1,9 @@
+//
+// MusicFS :: Artist Alias Dictionary
+// 
+// Copyright (c) 2014-2015 by William R. Fraser
+// 
+
 #pragma once
 
 #include <unordered_map>

@@ -1,3 +1,9 @@
+//
+// Tag Extractor Utility
+//
+// Copyright (c) 2014-2015 by William R. Fraser
+//
+
 #include <iostream>
 #include <string>
 

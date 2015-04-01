@@ -1,3 +1,9 @@
+//
+// MusicFS :: Miscellaneous Utility Functions
+//
+// Copyright (c) 2014-2015 by William R. Fraser
+//
+
 #pragma once
 
 inline std::string join(const std::vector<std::string>& vec, const std::string& separator)

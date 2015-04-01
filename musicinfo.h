@@ -1,3 +1,9 @@
+//
+// MusicFS :: File Metadata Extractor
+//
+// Copyright (c) 2014-2015 by William R. Fraser
+//
+
 #pragma once
 
 #include <taglib/fileref.h>

@@ -1,3 +1,9 @@
+//
+// MusicFS :: Logging Macros
+//
+// Copyright (c) 2014-2015 by William R. Fraser
+//
+
 #pragma once
 
 extern int musicfs_log_level;
