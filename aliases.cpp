@@ -13,6 +13,11 @@ ArtistAliases::ArtistAliases()
 {
 }
 
+bool is_space(locale& loc, char c)
+{
+    return use_facet<ctype<char>>(loc).is(ctype<char>::space, c);
+}
+
 void trim_string(string& s, locale& loc)
 {
     if (s.size() == 0)
@@ -21,7 +26,7 @@ void trim_string(string& s, locale& loc)
     const char* start = s.c_str();
     for (char* c = &s[s.size() - 1]; c != start; c--)
     {
-        if (use_facet<ctype<char>>(loc).is(ctype<char>::space, *c))
+        if (is_space(loc, *c))
         {
             *c = '\0';
         }
@@ -51,14 +56,17 @@ bool ArtistAliases::ParseFile(const string& path)
     {
         line_number++;
 
+        if (line[0] == '#') // comment
+            continue;
+
         string lower = line;
         transform(line.begin(), line.end(), lower.begin(), tolower);
         trim_string(lower, loc);
         
-        if (lower.size() == 0)
+        if (lower.size() == 0) // empty line after trimming
             continue;
 
-        if (use_facet<ctype<char>>(loc).is(ctype<char>::space, lower[0]))
+        if (is_space(loc, lower[0]))
         {
             if (canonical == nullptr)
             {
