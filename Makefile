@@ -7,17 +7,17 @@ DEFINES=-DFUSE_USE_VERSION=28 \
         -DMUSICFS_VERSION="\"$(VERSION)\"" \
 
 CXXFLAGS+=-std=c++14 -Wall -pedantic $(DEFINES) -I/usr/include/fuse -g
-LFLAGS+=-Wall -lstdc++ -lm -ltag -lfuse -lsqlite3
+LDFLAGS+=-Wall -lstdc++ -lm -ltag -lfuse -lsqlite3
 
 all: musicfs
 
 OBJS=main.o musicinfo.o database.o groveler.o path_pattern.o aliases.o
 
 musicfs: $(OBJS)
-	$(CXX) $(OBJS) $(LFLAGS) -o musicfs
+	$(CXX) $(OBJS) $(LDFLAGS) -o musicfs
 
-tag: tag.cpp
-	$(CXX) tag.cpp $(CXXFLAGS) $(LFLAGS) -o tag
+.PHONY: tools
+tools: tools/checkempty tools/tag
 
 clean:
-	rm -f *.o musicfs
+	rm -f *.o musicfs tools/checkempty tools/tag
