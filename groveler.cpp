@@ -26,11 +26,34 @@
 
 using namespace std;
 
-static bool file_extension_filter(const string& path, locale& loc)
+static bool equals_nocase(char a, char b)
+{
+    return ::tolower(a) == ::tolower(b);
+}
+
+static bool file_extension_filter(const string& path)
 {
     // TODO: limit grovel results to filetypes we care about
     // this will potentially save MusicInfo from doing a bunch of work
-    return true;
+
+    static const vector<string> s_extensions {
+        "mp3", "flac", "m4a", "wma", "ogg"
+    };
+
+    for (const string& ext : s_extensions)
+    {
+        auto end = path.end();
+        auto begin = end - ext.length();
+
+        if ((begin >= path.begin())
+                && (*(begin - 1) == '.')
+                && equal(begin, end, ext.begin(), equals_nocase))
+        {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 vector<pair<int,int>> grovel(const string& base_path, MusicDatabase& db)
@@ -96,8 +119,7 @@ vector<pair<int,int>> grovel(const string& base_path, MusicDatabase& db)
             }
             else if (e->d_type == DT_REG || e->d_type == DT_LNK)
             {
-                //TODO
-                //if (file_extension_filter(full_path))
+                if (file_extension_filter(full_path))
                 {
                     files.push_back(move(full_path));
                 }
