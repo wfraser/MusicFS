@@ -26,6 +26,36 @@
 
 using namespace std;
 
+static bool equals_nocase(char a, char b)
+{
+    return ::tolower(a) == ::tolower(b);
+}
+
+static bool file_extension_filter(const string& path)
+{
+    // TODO: limit grovel results to filetypes we care about
+    // this will potentially save MusicInfo from doing a bunch of work
+
+    static const vector<string> s_extensions {
+        "mp3", "flac", "m4a", "wma", "ogg"
+    };
+
+    for (const string& ext : s_extensions)
+    {
+        auto end = path.end();
+        auto begin = end - ext.length();
+
+        if ((begin >= path.begin())
+                && (*(begin - 1) == '.')
+                && equal(begin, end, ext.begin(), equals_nocase))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 vector<pair<int,int>> grovel(const string& base_path, MusicDatabase& db)
 {
     deque<string> directories;
@@ -65,6 +95,23 @@ vector<pair<int,int>> grovel(const string& base_path, MusicDatabase& db)
             full_path.push_back('/');
             full_path.append(e->d_name);
 
+            if (e->d_type == DT_UNKNOWN)
+            {
+                // Do a stat() to fill in the d_type field.
+                struct stat statbuf;
+                if (-1 == stat(full_path.c_str(), &statbuf))
+                {
+                    PERROR("stat on \"" << full_path << "\"");
+                }
+                else
+                {
+                    if (S_ISREG(statbuf.st_mode))
+                        e->d_type = DT_REG;
+                    else if (S_ISDIR(statbuf.st_mode))
+                        e->d_type = DT_DIR;
+                }
+            }
+
             if (e->d_type == DT_DIR)
             {
                 directories.push_back(move(full_path));
@@ -72,8 +119,15 @@ vector<pair<int,int>> grovel(const string& base_path, MusicDatabase& db)
             }
             else if (e->d_type == DT_REG || e->d_type == DT_LNK)
             {
-                files.push_back(move(full_path));
+                if (file_extension_filter(full_path))
+                {
+                    files.push_back(move(full_path));
+                }
             }
+        }
+        if (errno != 0)
+        {
+            PERROR("readdir in \"" << path << "\"");
         }
 
         closedir(dir);

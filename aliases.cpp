@@ -9,8 +9,9 @@
 #include <string>
 #include <unordered_set>
 #include <unordered_map>
-#include <locale>
 #include <algorithm>
+#include <functional>
+#include <cctype>
 #include "aliases.h"
 
 using namespace std;
@@ -19,12 +20,7 @@ ArtistAliases::ArtistAliases()
 {
 }
 
-bool is_space(locale& loc, char c)
-{
-    return use_facet<ctype<char>>(loc).is(ctype<char>::space, c);
-}
-
-void trim_string(string& s, locale& loc)
+void trim_string(string& s)
 {
     if (s.size() == 0)
         return;
@@ -32,7 +28,7 @@ void trim_string(string& s, locale& loc)
     const char* start = s.c_str();
     for (char* c = &s[s.size() - 1]; c != start; c--)
     {
-        if (is_space(loc, *c))
+        if (isspace(*c))
         {
             *c = '\0';
         }
@@ -45,12 +41,6 @@ void trim_string(string& s, locale& loc)
 
 bool ArtistAliases::ParseFile(const string& path)
 {
-    locale loc;
-    auto tolower = [&loc](char c) -> char
-    {
-        return use_facet<ctype<char>>(loc).tolower(c);
-    };
-
     ifstream f(path);
     if (!f.good())
         return false;
@@ -66,13 +56,13 @@ bool ArtistAliases::ParseFile(const string& path)
             continue;
 
         string lower = line;
-        transform(line.begin(), line.end(), lower.begin(), tolower);
-        trim_string(lower, loc);
+        transform(line.begin(), line.end(), lower.begin(), ::tolower);
+        trim_string(lower);
         
         if (lower.size() == 0) // empty line after trimming
             continue;
 
-        if (is_space(loc, lower[0]))
+        if (isspace(lower[0]))
         {
             if (canonical == nullptr)
             {
@@ -101,14 +91,8 @@ bool ArtistAliases::ParseFile(const string& path)
 
 const string* ArtistAliases::Lookup(const string& query) const
 {
-    locale loc;
-    auto tolower = [&loc](char c) -> char
-    {
-        return use_facet<ctype<char>>(loc).tolower(c);
-    };
-
     string lower;
-    transform(query.begin(), query.end(), lower.begin(), tolower);
+    transform(query.begin(), query.end(), lower.begin(), ::tolower);
 
     auto pos = m_map.find(lower);
     if (pos != m_map.end())
