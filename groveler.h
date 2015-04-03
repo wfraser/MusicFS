@@ -9,7 +9,7 @@
 class ArtistAliases;
 
 std::vector<std::pair<int,int>> grovel(
-    const std::string& path,
+    const std::vector<std::string>& paths,
     MusicDatabase& db
     );
 

@@ -56,10 +56,10 @@ static bool file_extension_filter(const string& path)
     return false;
 }
 
-vector<pair<int,int>> grovel(const string& base_path, MusicDatabase& db)
+vector<pair<int,int>> grovel(const vector<string>& base_paths, MusicDatabase& db)
 {
     deque<string> directories;
-    directories.push_back(base_path);
+    directories.assign(base_paths.begin(), base_paths.end());
 
     list<string> files;
 
@@ -152,7 +152,7 @@ vector<pair<int,int>> grovel(const string& base_path, MusicDatabase& db)
         int fileId = get<0>(f);
         //int trackId = get<1>(f);
         time_t mtime = get<2>(f);
-        const string& path = base_path + get<3>(f);
+        const string& path = get<3>(f);
 
         auto pos = find(files.begin(), files.end(), path);
 
@@ -207,8 +207,6 @@ vector<pair<int,int>> grovel(const string& base_path, MusicDatabase& db)
 
         if (info.has_tag())
         {
-            string partial_path(path.c_str() + base_path.size(), path.size() - base_path.size());
-
             struct stat s;
             if (0 != stat(path.c_str(), &s))
             {
@@ -217,7 +215,7 @@ vector<pair<int,int>> grovel(const string& base_path, MusicDatabase& db)
             }
 
             int track_id, file_id;
-            db.AddTrack(info, partial_path, s.st_mtime, &track_id, &file_id);
+            db.AddTrack(info, path, s.st_mtime, &track_id, &file_id);
             groveled_count++;
             groveled_ids.emplace_back(track_id, file_id);
         }

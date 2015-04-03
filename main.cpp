@@ -38,7 +38,7 @@ const char default_database_name[] = "music.db";
         
 struct musicfs_opts
 {
-    char *backing_fs;
+    vector<string> backing_fs_paths;
     char *pattern;
     MusicDatabase *db;
     char *database_path;
@@ -50,13 +50,9 @@ static musicfs_opts musicfs = {};
 
 int stat_real_file(const char *path, struct stat *stbuf)
 {
-    string real_path = musicfs.backing_fs;
-    real_path += "/";
-    real_path += path;
-
-    if (-1 == stat(real_path.c_str(), stbuf))
+    if (-1 == stat(path, stbuf))
     {
-        PERROR(__FUNCTION__ << ": failure to stat real file: " << real_path);
+        PERROR(__FUNCTION__ << ": failure to stat real file: " << path);
         return -errno;
     }
 
@@ -86,8 +82,8 @@ int musicfs_access(const char *path, int mode)
 {
     DEBUG("access (" << mode << ") " << path);
 
-    string partialRealPath;
-    bool exists = musicfs.db->GetRealPath(path, partialRealPath);
+    string realPath;
+    bool exists = musicfs.db->GetRealPath(path, realPath);
 
     if (strcmp(path, "/") != 0 && !exists)
         return -ENOENT;
@@ -96,7 +92,7 @@ int musicfs_access(const char *path, int mode)
     if (mode & W_OK)
         return -EACCES;
 
-    if (partialRealPath.empty())
+    if (realPath.empty())
     {
         return 0;
     }
@@ -119,20 +115,20 @@ int musicfs_getattr(const char *path, struct stat *stbuf)
     }
     else
     {
-        string partialRealPath;
-        bool exists = musicfs.db->GetRealPath(path, partialRealPath);
+        string realPath;
+        bool exists = musicfs.db->GetRealPath(path, realPath);
 
         if (!exists)
             return -ENOENT;
 
-        if (partialRealPath.empty())
+        if (realPath.empty())
         {
             fake_directory_stat(stbuf);
             return 0;
         }
         else
         {
-            return stat_real_file(partialRealPath.c_str(), stbuf);
+            return stat_real_file(realPath.c_str(), stbuf);
         }
     }
 }
@@ -207,15 +203,13 @@ int musicfs_open(const char *path, struct fuse_file_info *fi)
 
     //TODO: check fi->flags ?
 
-    string partialRealPath;
-    bool found = musicfs.db->GetRealPath(path, partialRealPath);
-    if (!found || partialRealPath.empty())
+    string realPath;
+    bool found = musicfs.db->GetRealPath(path, realPath);
+    if (!found || realPath.empty())
     {
         return -ENOENT;
     }
 
-    string realPath = musicfs.backing_fs;
-    realPath += partialRealPath;
     int fd = open(realPath.c_str(), fi->flags);
     if (fd == -1)
     {
@@ -267,13 +261,13 @@ int musicfs_listxattr(const char *path, char *list, size_t size)
     if (strcmp(path, "/") == 0)
         return 0;
 
-    string partialRealPath;
-    bool exists = musicfs.db->GetRealPath(path, partialRealPath);
+    string realPath;
+    bool exists = musicfs.db->GetRealPath(path, realPath);
 
     if (!exists)
         return -ENOENT;
 
-    if (partialRealPath.empty())
+    if (realPath.empty())
         return 0;
 
     size_t requiredSize = sizeof(REALPATH_XATTR_NAME);
@@ -292,27 +286,25 @@ int musicfs_getxattr(const char *path, const char *name, char *value, size_t siz
 {
     DEBUG("getxattr(" << name << ") " << path);
 
-    string partialRealPath;
-    bool exists = musicfs.db->GetRealPath(path, partialRealPath);
+    string realPath;
+    bool exists = musicfs.db->GetRealPath(path, realPath);
 
     if (!exists)
         return -ENOENT;
 
-    if (partialRealPath.empty())
+    if (realPath.empty())
         return -EINVAL;
 
     if (strcmp(name, REALPATH_XATTR_NAME) == 0)
     {
-        string fullPath = musicfs.backing_fs + partialRealPath;
-
         if (size == 0)
-            return fullPath.size();
+            return realPath.size();
 
-        if (size < fullPath.size())
+        if (size < realPath.size())
             return -ERANGE;
 
-        memcpy(value, fullPath.c_str(), fullPath.size());
-        return fullPath.size();
+        memcpy(value, realPath.c_str(), realPath.size());
+        return realPath.size();
     }
     else
     {
@@ -345,6 +337,7 @@ enum
     KEY_VERSION,
     KEY_EXTENSIONS,
     KEY_ALIASES,
+    KEY_BACKING_FS,
 };
 
 enum
@@ -387,13 +380,16 @@ void usage()
         "   --debug\n"
         "   -o debug                Enable debugging mode. MusicFS will not fork to\n"
         "                               background, and enables all debugging messages.\n"
+        "\n"
+        "   Note that the backing filesystem can be specified multiple times. All of\n"
+        "   the paths given will be used to build the filesystem.\n"
         "\n";
 }
 
 static fuse_opt musicfs_opts_spec[] = {
-    { "backing_fs=%s",  offsetof(struct musicfs_opts, backing_fs),      0 },
     { "pattern=%s",     offsetof(struct musicfs_opts, pattern),         0 },
     { "database=%s",    offsetof(struct musicfs_opts, database_path),   0 },
+    FUSE_OPT_KEY("backing_fs=%s", KEY_BACKING_FS),
     FUSE_OPT_KEY("extensions=%s", KEY_EXTENSIONS),
     FUSE_OPT_KEY("aliases=%s",  KEY_ALIASES),
     FUSE_OPT_KEY("verbose",     KEY_VERBOSE),
@@ -409,8 +405,7 @@ static fuse_opt musicfs_opts_spec[] = {
     FUSE_OPT_END
 };
 
-int num_nonopt_args_read = 0;
-char * nonopt_arguments[2] = { nullptr, nullptr };
+vector<string> nonopt_args;
 
 int musicfs_opt_proc(void *data, const char *arg, int key,
         fuse_args *outargs)
@@ -421,26 +416,26 @@ int musicfs_opt_proc(void *data, const char *arg, int key,
         // Unknown option-argument. Pass it along to FUSE I guess?
         return FUSE_OPT_KEEP;
 
+    case KEY_BACKING_FS:
+        // Skip past the '='
+        while (*arg != '=' && *arg != '\0')
+            arg++;
+        if (*arg == '\0')
+            return FUSE_OPT_DISCARD;
+        if (*arg == '=')
+            arg++;
+        // fall-through:
+
     case FUSE_OPT_KEY_NONOPT:
-        // We take either 1 or 2 non-option arguments.
+        // We take at least two non-option arguments.
         // The last one is the mount point. THis needs to be tacked on to the outargs,
         // because FUSE handles it. But during parsing we don't know how many there are,
         // so just save them for later, and main() will fix it.
-        if (num_nonopt_args_read < 2)
-        {
-            const_cast<const char**>(nonopt_arguments)[num_nonopt_args_read++] = arg;
-            return FUSE_OPT_DISCARD;
-        }
-        else
-        {
-            cerr << "MusicFS: too many arguments: don't know what to do with \""
-                << arg << "\"\n";
-            return FUSE_OPT_ERROR;
-        }
-        break;
+        nonopt_args.push_back(arg);
+        return FUSE_OPT_DISCARD;
 
     case KEY_EXTENSIONS:
-        // Skip to the '='.
+        // Skip past the '='.
         while (*arg != '\0' && *arg != '=')
             arg++;
         if (*arg == '=')
@@ -468,6 +463,7 @@ int musicfs_opt_proc(void *data, const char *arg, int key,
             arg++;
         if (*arg == '=')
             arg++;
+
         musicfs.aliases_conf = string(arg);
         return FUSE_OPT_DISCARD;
 
@@ -517,17 +513,14 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    if (num_nonopt_args_read > 0)
+    if (nonopt_args.size() >= 2)
     {
-        fuse_opt_add_arg(&args, nonopt_arguments[num_nonopt_args_read - 1]);
-        if (num_nonopt_args_read == 2)
-        {
-            musicfs.backing_fs = nonopt_arguments[0];
-        }
+        fuse_opt_add_arg(&args, nonopt_args.back().c_str());
+        musicfs.backing_fs_paths.assign(nonopt_args.begin(), nonopt_args.end() - 1);
     }
     else
     {
-        cerr << "MusicFS: error: you need to specify a mount point.\n";
+        cerr << "MusicFS: error: you need to specify a mount point and at least one backing filesystem path.\n";
         usage();
         fuse_opt_add_arg(&args, "-ho");
         fuse_main(args.argc, args.argv, &MusicFS_Opers, nullptr);
@@ -587,7 +580,7 @@ int main(int argc, char **argv)
     db.BeginTransaction();
 
     cout << "Groveling music. This may take a while...\n";
-    vector<pair<int,int>> groveled_ids = grovel(musicfs.backing_fs, db);
+    vector<pair<int,int>> groveled_ids = grovel(musicfs.backing_fs_paths, db);
 
     db.EndTransaction();
     db.BeginTransaction();

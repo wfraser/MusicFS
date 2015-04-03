@@ -8,6 +8,3 @@
 4. Changes to configuration should not require rebuilding the whole database.
     a. Configuration must be stored in the DB for this to work.
     b. Changes to aliases will require rebuilding paths.
-
-5. Multiple source directories should be allowed.
-    a. This probably requires changing the database file table to specify absolute paths instead of relative to the backing FS path.
