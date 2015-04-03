@@ -258,6 +258,68 @@ int musicfs_release(const char *path, struct fuse_file_info *fi)
     return 0;
 }
 
+static const char REALPATH_XATTR_NAME[] = "user.musicfs.real_path";
+
+int musicfs_listxattr(const char *path, char *list, size_t size)
+{
+    DEBUG("listxattr " << path);
+
+    if (strcmp(path, "/") == 0)
+        return 0;
+
+    string partialRealPath;
+    bool exists = musicfs.db->GetRealPath(path, partialRealPath);
+
+    if (!exists)
+        return -ENOENT;
+
+    if (partialRealPath.empty())
+        return 0;
+
+    size_t requiredSize = sizeof(REALPATH_XATTR_NAME);
+
+    if (size == 0)
+        return requiredSize;
+
+    if (size < requiredSize)
+        return -ERANGE;
+
+    memcpy(list, REALPATH_XATTR_NAME, requiredSize);
+    return requiredSize;
+}
+
+int musicfs_getxattr(const char *path, const char *name, char *value, size_t size)
+{
+    DEBUG("getxattr(" << name << ") " << path);
+
+    string partialRealPath;
+    bool exists = musicfs.db->GetRealPath(path, partialRealPath);
+
+    if (!exists)
+        return -ENOENT;
+
+    if (partialRealPath.empty())
+        return -EINVAL;
+
+    if (strcmp(name, REALPATH_XATTR_NAME) == 0)
+    {
+        string fullPath = musicfs.backing_fs + partialRealPath;
+
+        if (size == 0)
+            return fullPath.size();
+
+        if (size < fullPath.size())
+            return -ERANGE;
+
+        memcpy(value, fullPath.c_str(), fullPath.size());
+        return fullPath.size();
+    }
+    else
+    {
+        return -EINVAL;
+    }
+}
+
 static fuse_operations MusicFS_Opers = {};
 void musicfs_init_fuse_operations()
 {
@@ -270,6 +332,8 @@ void musicfs_init_fuse_operations()
     IMPL(open);
     IMPL(read);
     IMPL(release);
+    IMPL(listxattr);
+    IMPL(getxattr);
 #undef IMPL
 }
 
