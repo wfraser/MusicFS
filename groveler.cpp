@@ -37,7 +37,7 @@ static bool file_extension_filter(const string& path)
     // this will potentially save MusicInfo from doing a bunch of work
 
     static const vector<string> s_extensions {
-        "mp3", "flac", "m4a", "wma", "ogg"
+        "mp3", "flac", "wma", "m4a", "mp4", "ogg"
     };
 
     for (const string& ext : s_extensions)
