@@ -26,6 +26,13 @@
 
 using namespace std;
 
+static bool file_extension_filter(const string& path, locale& loc)
+{
+    // TODO: limit grovel results to filetypes we care about
+    // this will potentially save MusicInfo from doing a bunch of work
+    return true;
+}
+
 vector<pair<int,int>> grovel(const string& base_path, MusicDatabase& db)
 {
     deque<string> directories;
@@ -65,6 +72,23 @@ vector<pair<int,int>> grovel(const string& base_path, MusicDatabase& db)
             full_path.push_back('/');
             full_path.append(e->d_name);
 
+            if (e->d_type == DT_UNKNOWN)
+            {
+                // Do a stat() to fill in the d_type field.
+                struct stat statbuf;
+                if (-1 == stat(full_path.c_str(), &statbuf))
+                {
+                    PERROR("stat on \"" << full_path << "\"");
+                }
+                else
+                {
+                    if (S_ISREG(statbuf.st_mode))
+                        e->d_type = DT_REG;
+                    else if (S_ISDIR(statbuf.st_mode))
+                        e->d_type = DT_DIR;
+                }
+            }
+
             if (e->d_type == DT_DIR)
             {
                 directories.push_back(move(full_path));
@@ -72,8 +96,16 @@ vector<pair<int,int>> grovel(const string& base_path, MusicDatabase& db)
             }
             else if (e->d_type == DT_REG || e->d_type == DT_LNK)
             {
-                files.push_back(move(full_path));
+                //TODO
+                //if (file_extension_filter(full_path))
+                {
+                    files.push_back(move(full_path));
+                }
             }
+        }
+        if (errno != 0)
+        {
+            PERROR("readdir in \"" << path << "\"");
         }
 
         closedir(dir);
