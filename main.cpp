@@ -23,6 +23,7 @@ int musicfs_log_level;
 bool musicfs_log_stderr = false;
 #include "logging.h"
 
+#include "configuration.h"
 #include "util.h"
 #include "musicinfo.h"
 #include "database.h"
@@ -36,17 +37,14 @@ const char default_database_name[] = "music.db";
 
 #define countof(_) (sizeof(_) / sizeof(*(_)))
         
-struct musicfs_opts
+struct musicfs_data
 {
-    vector<string> backing_fs_paths;
-    char *pattern;
+    Config config;
     MusicDatabase *db;
     char *database_path;
     time_t startup_time;
-    vector<string> extension_priority;
-    string aliases_conf;
 };
-static musicfs_opts musicfs = {};
+static musicfs_data musicfs = {};
 
 int stat_real_file(const char *path, struct stat *stbuf)
 {
@@ -154,9 +152,9 @@ int filetype_ranking(const string& path)
     if (path.size() == 0)
         return 1;
 
-    for (int i = 0, n = static_cast<int>(musicfs.extension_priority.size()); i < n; i++)
+    for (int i = 0, n = static_cast<int>(musicfs.config.extension_priority.size()); i < n; i++)
     {
-        const string& ext = musicfs.extension_priority[i];
+        const string& ext = musicfs.config.extension_priority[i];
         if ((ext == "*") || iendsWith(path, ext))
             return -1;
     }
@@ -338,6 +336,7 @@ enum
     KEY_EXTENSIONS,
     KEY_ALIASES,
     KEY_BACKING_FS,
+    KEY_PATH_PATTERN,
 };
 
 enum
@@ -387,8 +386,8 @@ void usage()
 }
 
 static fuse_opt musicfs_opts_spec[] = {
-    { "pattern=%s",     offsetof(struct musicfs_opts, pattern),         0 },
-    { "database=%s",    offsetof(struct musicfs_opts, database_path),   0 },
+    { "database=%s",    offsetof(struct musicfs_data, database_path),   0 },
+    FUSE_OPT_KEY("pattern=%s",  KEY_PATH_PATTERN),
     FUSE_OPT_KEY("backing_fs=%s", KEY_BACKING_FS),
     FUSE_OPT_KEY("extensions=%s", KEY_EXTENSIONS),
     FUSE_OPT_KEY("aliases=%s",  KEY_ALIASES),
@@ -405,6 +404,14 @@ static fuse_opt musicfs_opts_spec[] = {
     FUSE_OPT_END
 };
 
+static void skip_to_arg_value(const char **arg)
+{
+    while (**arg != '=' && **arg != '\0')
+        (*arg)++;
+    if (**arg == '=')
+        (*arg)++;
+}
+
 vector<string> nonopt_args;
 
 int musicfs_opt_proc(void *data, const char *arg, int key,
@@ -417,13 +424,9 @@ int musicfs_opt_proc(void *data, const char *arg, int key,
         return FUSE_OPT_KEEP;
 
     case KEY_BACKING_FS:
-        // Skip past the '='
-        while (*arg != '=' && *arg != '\0')
-            arg++;
+        skip_to_arg_value(&arg);
         if (*arg == '\0')
             return FUSE_OPT_DISCARD;
-        if (*arg == '=')
-            arg++;
         // fall-through:
 
     case FUSE_OPT_KEY_NONOPT:
@@ -435,11 +438,7 @@ int musicfs_opt_proc(void *data, const char *arg, int key,
         return FUSE_OPT_DISCARD;
 
     case KEY_EXTENSIONS:
-        // Skip past the '='.
-        while (*arg != '\0' && *arg != '=')
-            arg++;
-        if (*arg == '=')
-            arg++;
+        skip_to_arg_value(&arg);
 
         for (size_t start = 0, end = 0; ; end++)
         {
@@ -450,7 +449,7 @@ int musicfs_opt_proc(void *data, const char *arg, int key,
                 {
                     ext = "." + ext;
                 }
-                musicfs.extension_priority.push_back(ext);
+                musicfs.config.extension_priority.push_back(ext);
                 start = end + 1;
             }
             if (arg[end] == '\0')
@@ -458,13 +457,14 @@ int musicfs_opt_proc(void *data, const char *arg, int key,
         }
         break;
 
-    case KEY_ALIASES:
-        while (*arg != '\0' && *arg != '=')
-            arg++;
-        if (*arg == '=')
-            arg++;
+    case KEY_PATH_PATTERN:
+        skip_to_arg_value(&arg);
+        musicfs.config.path_pattern.assign(arg);
+        return FUSE_OPT_DISCARD;
 
-        musicfs.aliases_conf = string(arg);
+    case KEY_ALIASES:
+        skip_to_arg_value(&arg);
+        musicfs.config.aliases_conf.assign(arg);
         return FUSE_OPT_DISCARD;
 
     case KEY_VERBOSE:
@@ -516,7 +516,7 @@ int main(int argc, char **argv)
     if (nonopt_args.size() >= 2)
     {
         fuse_opt_add_arg(&args, nonopt_args.back().c_str());
-        musicfs.backing_fs_paths.assign(nonopt_args.begin(), nonopt_args.end() - 1);
+        musicfs.config.backing_fs_paths.assign(nonopt_args.begin(), nonopt_args.end() - 1);
     }
     else
     {
@@ -527,21 +527,21 @@ int main(int argc, char **argv)
         return -1;
     }
 
-    if (musicfs.pattern == nullptr)
+    if (musicfs.config.path_pattern.empty())
     {
-        musicfs.pattern = const_cast<char*>(default_pattern);
+        musicfs.config.path_pattern.assign(default_pattern);
         INFO("No path pattern specified, using default: " << default_pattern);
     }
 
-    PathPattern pathPattern(musicfs.pattern);
+    PathPattern pathPattern(musicfs.config.path_pattern.c_str());
 
-    if (musicfs.extension_priority.size() == 0)
+    if (musicfs.config.extension_priority.empty())
     {
-        musicfs.extension_priority = { ".flac", ".mp3", "*" };
+        musicfs.config.extension_priority = { ".flac", ".mp3", "*" };
     }
 
     INFO("File extension priority: ");
-    for (const auto& ext : musicfs.extension_priority) INFO("\t" << ext);
+    for (const auto& ext : musicfs.config.extension_priority) INFO("\t" << ext);
 
     if (musicfs.database_path == nullptr)
     {
@@ -562,15 +562,15 @@ int main(int argc, char **argv)
     MusicDatabase db(musicfs.database_path);
 
     ArtistAliases aliases;
-    if (!musicfs.aliases_conf.empty())
+    if (!musicfs.config.aliases_conf.empty())
     {
-        DEBUG("Artist aliases file: " << musicfs.aliases_conf);
+        DEBUG("Artist aliases file: " << musicfs.config.aliases_conf);
         ArtistAliases aliases;
-        bool ok = aliases.ParseFile(musicfs.aliases_conf);
+        bool ok = aliases.ParseFile(musicfs.config.aliases_conf);
         if (!ok)
         {
             cerr << "MusicFS: specified artist aliases file \""
-                << musicfs.aliases_conf
+                << musicfs.config.aliases_conf
                 << "\" could not be opened: "
                 << strerror(errno) << endl;
             return -1;
@@ -580,7 +580,7 @@ int main(int argc, char **argv)
     db.BeginTransaction();
 
     cout << "Groveling music. This may take a while...\n";
-    vector<pair<int,int>> groveled_ids = grovel(musicfs.backing_fs_paths, db);
+    vector<pair<int,int>> groveled_ids = grovel(musicfs.config.backing_fs_paths, db);
 
     db.EndTransaction();
     db.BeginTransaction();
