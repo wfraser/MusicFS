@@ -557,8 +557,17 @@ int main(int argc, char **argv)
         strcpy(musicfs.database_path + len + 1, default_database_name);
     }
 
-    cout << "Opening database (" << musicfs.database_path << ")...\n";
     MusicDatabase db(musicfs.database_path);
+
+    try
+    {
+        cout << "Opening database (" << musicfs.database_path << ")...\n";
+        db.Init();
+    }
+    catch (exception& ex)
+    {
+        return -1;
+    }
 
     ArtistAliases aliases;
     if (!musicfs.config.aliases_conf.empty())

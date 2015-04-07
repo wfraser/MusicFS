@@ -21,6 +21,8 @@ public:
     MusicDatabase(const char *dbFile);
     ~MusicDatabase();
 
+    void Init();
+
     MusicDatabase(const MusicDatabase&) = delete;
     MusicDatabase& operator=(const MusicDatabase&) = delete;
     MusicDatabase(MusicDatabase&&) = delete;
@@ -53,4 +55,5 @@ private:
     void CleanTable(const char *table);
 
     sqlite3 *m_dbHandle;
+    std::string m_path;
 };

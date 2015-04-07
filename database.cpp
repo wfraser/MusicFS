@@ -33,9 +33,11 @@ using namespace std;
         if ((_) != SQLITE_OK) \
         { \
             ERROR(msg << " at " __FILE__ ":" << __LINE__  << ": " << sqlite3_errmsg(m_dbHandle)); \
-            throw new exception(); \
+            throw exception(); \
         } \
     } while(0)
+
+const int DB_SCHEMA_VERSION = 1;
 
 static vector<string> s_tableStatements =
 {
@@ -74,7 +76,15 @@ static vector<string> s_tableStatements =
         "FOREIGN KEY(track_id)      REFERENCES track(id)    ON DELETE CASCADE, "
         "FOREIGN KEY(file_id)       REFERENCES file(id)     ON DELETE CASCADE, "
         "FOREIGN KEY(parent_id)     REFERENCES path(id)     ON DELETE CASCADE "
-        ");"
+        ");",
+    "CREATE TABLE IF NOT EXISTS config ( "
+        "id                 INTEGER PRIMARY KEY, "
+        "schema_version     INTEGER NOT NULL, "
+        "backing_fs_paths   BLOB NOT NULL, "
+        "extension_priority TEXT, "
+        "path_pattern       TEXT, "
+        "aliases_conf_path  TEXT "
+        ");",
 };
 
 #ifdef REGEXP_SUPPORT
@@ -127,11 +137,17 @@ string regex_escape(const string& s)
 #endif
 
 MusicDatabase::MusicDatabase(const char *dbFile)
+    : m_dbHandle(nullptr)
+    , m_path(dbFile)
+{
+}
+
+void MusicDatabase::Init()
 {
     int flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE;
 
-    CHECKERR_MSG(sqlite3_open_v2(dbFile, &m_dbHandle, flags, nullptr),
-        "Failed to open database file \"" << dbFile << "\": " << sqlite3_errmsg(m_dbHandle));
+    CHECKERR_MSG(sqlite3_open_v2(m_path.c_str(), &m_dbHandle, flags, nullptr),
+        "Failed to open database file \"" << m_path << "\": " << sqlite3_errmsg(m_dbHandle));
 
     for (size_t i = 0, n = s_tableStatements.size(); i < n; i++)
     {
@@ -163,6 +179,54 @@ MusicDatabase::MusicDatabase(const char *dbFile)
         ),
         "Error defining REGEXP function.");
 #endif
+
+    string stmt = "SELECT schema_version FROM config WHERE id = 0";
+    sqlite3_stmt *prepared;
+    CHECKERR_MSG(
+        sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr),
+        "Error fetching DB schema version");
+
+    int result = sqlite3_step(prepared);
+    if (result == SQLITE_ROW)
+    {
+        int existing_schema = sqlite3_column_int(prepared, 0);
+
+        if (existing_schema != DB_SCHEMA_VERSION)
+        {
+            ERROR("schema version mismatch: have " << existing_schema
+                << "; need " << DB_SCHEMA_VERSION);
+
+            cout << "The database needs to be updated.\n"
+                 << m_path << " has schema version " << existing_schema << "; "
+                 << DB_SCHEMA_VERSION << " is needed.\n";
+
+            // TODO: automated schema migrations.
+            // For now, though:
+            cout << "Delete the database and re-run.\n";
+            throw exception();
+        }
+    }
+    else
+    {
+        // No config row was found. This must be a newly created database.
+
+        sqlite3_finalize(prepared);
+
+        stmt = "INSERT INTO config (id, schema_version, backing_fs_paths) "
+                    "VALUES(0, ?, ?);";
+        CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
+        CHECKERR(sqlite3_bind_int(prepared, 1, DB_SCHEMA_VERSION));
+
+        //TODO: store the actual config values.
+        CHECKERR(sqlite3_bind_blob(prepared, 2, "", 0, SQLITE_STATIC));
+
+        result = sqlite3_step(prepared);
+        if (result != SQLITE_DONE)
+        {
+            CHECKERR(result);
+        }
+    }
+    sqlite3_finalize(prepared);
 }
 
 MusicDatabase::~MusicDatabase()
@@ -421,7 +485,7 @@ void MusicDatabase::AddRow(const char *table, std::string value, int *outId)
     if (result == SQLITE_ROW)
     {
         ERROR("unexpected SQLITE_ROW on insert statement");
-        throw new exception();
+        throw exception();
     }
     else if (result != SQLITE_DONE)
     {
