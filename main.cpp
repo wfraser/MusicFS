@@ -152,9 +152,8 @@ int filetype_ranking(const string& path)
     if (path.size() == 0)
         return 1;
 
-    for (int i = 0, n = static_cast<int>(musicfs.config.extension_priority.size()); i < n; i++)
+    for (const string& ext : musicfs.config.extension_priority)
     {
-        const string& ext = musicfs.config.extension_priority[i];
         if ((ext == "*") || iendsWith(path, ext))
             return -1;
     }
