@@ -290,7 +290,7 @@ int musicfs_getxattr(const char *path, const char *name, char *value, size_t siz
         return -ENOENT;
 
     if (realPath.empty())
-        return -EINVAL;
+        return -ENODATA;
 
     if (strcmp(name, REALPATH_XATTR_NAME) == 0)
     {
@@ -305,7 +305,7 @@ int musicfs_getxattr(const char *path, const char *name, char *value, size_t siz
     }
     else
     {
-        return -EINVAL;
+        return -ENODATA;
     }
 }
 
