@@ -186,6 +186,8 @@ void MusicDatabase::Init(Config& config, bool loadConfigFromDatabase)
     {
         int existing_schema = GetColumn<int>(prepared, 0);
 
+        INFO("Found database schema version " << existing_schema);
+
         if (existing_schema != DB_SCHEMA_VERSION)
         {
             ERROR("schema version mismatch: have " << existing_schema
@@ -218,6 +220,12 @@ void MusicDatabase::Init(Config& config, bool loadConfigFromDatabase)
         string path_pattern = GetColumn<string>(prepared, 2);
         string aliases_conf_path = GetColumn<string>(prepared, 3);
 
+        INFO("Got the following previous config options from the database:");
+        INFO("backing_fs_paths: " << join(backing_fs_paths, "; "));
+        INFO("extension_priority: " << join(extension_priority, ";"));
+        INFO("path_pattern: " << path_pattern);
+        INFO("aliases_conf_path: " << aliases_conf_path);
+
         if (loadConfigFromDatabase)
         {
             config.backing_fs_paths = move(backing_fs_paths);
@@ -239,6 +247,8 @@ void MusicDatabase::Init(Config& config, bool loadConfigFromDatabase)
     else
     {
         // No config row was found. This must be a newly created database.
+
+        INFO("New database created. Setting schema version " << DB_SCHEMA_VERSION);
 
         sqlite3_finalize(prepared);
 
