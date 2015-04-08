@@ -14,6 +14,7 @@ struct MusicAttributes
 struct sqlite3;
 
 class MusicInfo;
+class Config;
 
 class MusicDatabase
 {
@@ -21,7 +22,7 @@ public:
     MusicDatabase(const char *dbFile);
     ~MusicDatabase();
 
-    void Init();
+    void Init(Config& config, bool loadConfigFromDatabase);
 
     MusicDatabase(const MusicDatabase&) = delete;
     MusicDatabase& operator=(const MusicDatabase&) = delete;

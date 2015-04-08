@@ -22,10 +22,13 @@
 #include "logging.h"
 
 #include "util.h"
+#include "configuration.h"
 #include "musicinfo.h"
+#include "dbhelpers.h"
 #include "database.h"
 
 using namespace std;
+using namespace DBHelpers;
 
 #define CHECKERR(_) CHECKERR_MSG(_, "SQL Error")
 #define CHECKERR_MSG(_, msg) \
@@ -142,7 +145,7 @@ MusicDatabase::MusicDatabase(const char *dbFile)
 {
 }
 
-void MusicDatabase::Init()
+void MusicDatabase::Init(Config& config, bool loadConfigFromDatabase)
 {
     int flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE;
 
@@ -155,14 +158,6 @@ void MusicDatabase::Init()
         
         CHECKERR_MSG(sqlite3_exec(m_dbHandle, statement.c_str(), nullptr, nullptr, nullptr),
             "Error in SQL table creation statement " << i);
-
-        /*
-        if (sqlite3_changes(m_dbHandle) == 0)
-        {
-            // Nothing got changed by this statement. We must already have tables. Skip the rest.
-            break;
-        }
-        */
     }
 
 #ifdef REGEXP_SUPPORT
@@ -189,7 +184,7 @@ void MusicDatabase::Init()
     int result = sqlite3_step(prepared);
     if (result == SQLITE_ROW)
     {
-        int existing_schema = sqlite3_column_int(prepared, 0);
+        int existing_schema = GetColumn<int>(prepared, 0);
 
         if (existing_schema != DB_SCHEMA_VERSION)
         {
@@ -205,6 +200,41 @@ void MusicDatabase::Init()
             cout << "Delete the database and re-run.\n";
             throw exception();
         }
+
+        sqlite3_finalize(prepared);
+
+        stmt = "SELECT backing_fs_paths, extension_priority, path_pattern, aliases_conf_path "
+                "FROM config WHERE id = 0;";
+        CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
+
+        int result = sqlite3_step(prepared);
+        if (result != SQLITE_ROW)
+        {
+            CHECKERR(result);
+        }
+
+        vector<string> backing_fs_paths = GetColumn<vector<string>>(prepared, 0);
+        vector<string> extension_priority = GetColumn<vector<string>>(prepared, 1);
+        string path_pattern = GetColumn<string>(prepared, 2);
+        string aliases_conf_path = GetColumn<string>(prepared, 3);
+
+        if (loadConfigFromDatabase)
+        {
+            config.backing_fs_paths = move(backing_fs_paths);
+            config.extension_priority = move(extension_priority);
+            config.path_pattern = move(path_pattern);
+            config.aliases_conf = move(aliases_conf_path);
+        }
+        else
+        {
+            // Check if they're equal.
+            //TODO
+        }
+    }
+    else if (loadConfigFromDatabase)
+    {
+        cout << "No saved configuration was found in the database.\n";
+        throw exception();
     }
     else
     {
@@ -212,13 +242,16 @@ void MusicDatabase::Init()
 
         sqlite3_finalize(prepared);
 
-        stmt = "INSERT INTO config (id, schema_version, backing_fs_paths) "
-                    "VALUES(0, ?, ?);";
+        stmt = "INSERT INTO config (id, schema_version, backing_fs_paths, "
+                    "extension_priority, path_pattern, aliases_conf_path) "
+                    "VALUES(0, ?, ?, ?, ?, ?);";
         CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
-        CHECKERR(sqlite3_bind_int(prepared, 1, DB_SCHEMA_VERSION));
 
-        //TODO: store the actual config values.
-        CHECKERR(sqlite3_bind_blob(prepared, 2, "", 0, SQLITE_STATIC));
+        CHECKERR(BindColumn(prepared, 1, DB_SCHEMA_VERSION));
+        CHECKERR(BindColumn(prepared, 2, config.backing_fs_paths));
+        CHECKERR(BindColumn(prepared, 3, config.extension_priority));
+        CHECKERR(BindColumn(prepared, 4, config.path_pattern));
+        CHECKERR(BindColumn(prepared, 5, config.aliases_conf));
 
         result = sqlite3_step(prepared);
         if (result != SQLITE_DONE)
@@ -244,14 +277,14 @@ bool MusicDatabase::GetId(const char *table, std::string value, int *outId)
     CHECKERR_MSG(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr),
         "Error preparing SQL select statement for " << table << ": " << sqlite3_errmsg(m_dbHandle));
 
-    CHECKERR_MSG(sqlite3_bind_text(prepared, 1, value.c_str(), value.size(), nullptr),
+    CHECKERR_MSG(BindColumn(prepared, 1, value),
         "Error in binding SQL select statement for " << table);
 
     bool found = true;
     int result = sqlite3_step(prepared);
     if (result == SQLITE_ROW)
     {
-        *outId = sqlite3_column_int(prepared, 0);
+        *outId = GetColumn<int>(prepared, 0);
     }
     else if (result == SQLITE_DONE)
     {
@@ -278,17 +311,14 @@ bool MusicDatabase::GetRealPath(const string& path, string& pathOut) const
 
     sqlite3_stmt *prepared;
     CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
-    CHECKERR(sqlite3_bind_text(prepared, 1, path.c_str(), path.size(), nullptr));
+    CHECKERR(BindColumn(prepared, 1, path));
 
     bool found = false;
     int result = sqlite3_step(prepared);
     if (result == SQLITE_ROW)
     {
         found = true;
-        if (sqlite3_column_type(prepared, 0) == SQLITE_NULL)
-            pathOut.clear();
-        else
-            pathOut = reinterpret_cast<const char*>(sqlite3_column_text(prepared, 0));
+        pathOut = GetColumnOrDefault<string>(prepared, 0);
     }
     else if (result != SQLITE_DONE)
     {
@@ -304,13 +334,13 @@ int MusicDatabase::GetPathId(const string& path) const
     string stmt = "SELECT id FROM path WHERE path = ?;";
     sqlite3_stmt *prepared;
     CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
-    CHECKERR(sqlite3_bind_text(prepared, 1, path.c_str(), path.size(), nullptr));
+    CHECKERR(BindColumn(prepared, 1, path));
 
     int id = 0;
     int result = sqlite3_step(prepared);
     if (result == SQLITE_ROW)
     {
-        id = sqlite3_column_int(prepared, 0);
+        id = GetColumn<int>(prepared, 0);
     }
     else if (result != SQLITE_DONE)
     {
@@ -332,22 +362,22 @@ int MusicDatabase::AddPath(const std::string& path, int parent_id, int track_id,
     sqlite3_stmt *prepared;
     CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
 
-    CHECKERR(sqlite3_bind_text(prepared, 1, path.c_str(), path.size(), nullptr));
+    CHECKERR(BindColumn(prepared, 1, path));
 
     if (parent_id == 0)
-        CHECKERR(sqlite3_bind_null(prepared, 2));
+        CHECKERR(BindColumn(prepared, 2, nullptr));
     else
-        CHECKERR(sqlite3_bind_int(prepared, 2, parent_id));
+        CHECKERR(BindColumn(prepared, 2, parent_id));
 
     if (track_id == 0)
-        CHECKERR(sqlite3_bind_null(prepared, 3));
+        CHECKERR(BindColumn(prepared, 3, nullptr));
     else
-        CHECKERR(sqlite3_bind_int(prepared, 3, track_id));
+        CHECKERR(BindColumn(prepared, 3, track_id));
 
     if (file_id == 0)
-        CHECKERR(sqlite3_bind_null(prepared, 4));
+        CHECKERR(BindColumn(prepared, 4, nullptr));
     else
-        CHECKERR(sqlite3_bind_int(prepared, 4, file_id));
+        CHECKERR(BindColumn(prepared, 4, file_id));
 
     int path_id = 0;
     int result = sqlite3_step(prepared);
@@ -361,12 +391,12 @@ int MusicDatabase::AddPath(const std::string& path, int parent_id, int track_id,
 
         stmt = "SELECT id FROM path WHERE path = ?;";
         CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
-        CHECKERR(sqlite3_bind_text(prepared, 1, path.c_str(), path.size(), nullptr));
+        CHECKERR(BindColumn(prepared, 1, path));
         result = sqlite3_step(prepared);
 
         if (result == SQLITE_ROW)
         {
-            path_id = sqlite3_column_int(prepared, 0);
+            path_id = GetColumn<int>(prepared, 0);
         }
         else
         {
@@ -406,13 +436,13 @@ vector<string> MusicDatabase::GetChildrenOfPath(
     CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
     
     if (parent_id != 0)
-        CHECKERR(sqlite3_bind_int(prepared, 1, parent_id));
+        CHECKERR(BindColumn(prepared, 1, parent_id));
 
     int result;
     while ((result = sqlite3_step(prepared)) == SQLITE_ROW)
     {
-        const char* childPath = reinterpret_cast<const char*>(sqlite3_column_text(prepared, 0));
-        int track_id = sqlite3_column_int(prepared, 1);
+        const char* childPath = GetColumn<const char*>(prepared, 0);
+        int track_id = GetColumn<int>(prepared, 1);
         if (track_id == 0)
         {
             // Row represents a directory, not a file. Insert into result set directly.
@@ -421,7 +451,7 @@ vector<string> MusicDatabase::GetChildrenOfPath(
         else
         {
             // Row represents a track and file. Add to the map.
-            const char* filePath = reinterpret_cast<const char*>(sqlite3_column_text(prepared, 2));
+            const char* filePath = GetColumn<const char*>(prepared, 2);
 
             if (files_by_track.find(track_id) == files_by_track.end())
                 files_by_track.emplace(track_id, vector<pair<string, string>>({}));
@@ -478,7 +508,7 @@ void MusicDatabase::AddRow(const char *table, std::string value, int *outId)
     result = sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr);
     CHECKERR_MSG(result, "Error in preparing SQL insert statement for " << table);
 
-    result = sqlite3_bind_text(prepared, 1, value.c_str(), value.size(), nullptr);
+    result = BindColumn(prepared, 1, value);
     CHECKERR_MSG(result, "Error in binding SQL insert statement for " << table);
 
     result = sqlite3_step(prepared);
@@ -538,13 +568,13 @@ void MusicDatabase::AddTrack(const MusicInfo& attributes, string path, time_t mt
 
     auto bindValues = [&]()
     {    
-        CHECKERR(sqlite3_bind_int(prepared, 1, artistId));
-        CHECKERR(sqlite3_bind_int(prepared, 2, albumartistId));
-        CHECKERR(sqlite3_bind_int(prepared, 3, albumId));
-        CHECKERR(sqlite3_bind_int(prepared, 4, attributes.year()));
-        CHECKERR(sqlite3_bind_text(prepared, 5, title.c_str(), title.size(), nullptr));
-        CHECKERR(sqlite3_bind_int(prepared, 6, attributes.track()));
-        CHECKERR(sqlite3_bind_text(prepared, 7, disc.c_str(), disc.size(), nullptr));
+        CHECKERR(BindColumn(prepared, 1, artistId));
+        CHECKERR(BindColumn(prepared, 2, albumartistId));
+        CHECKERR(BindColumn(prepared, 3, albumId));
+        CHECKERR(BindColumn(prepared, 4, attributes.year()));
+        CHECKERR(BindColumn(prepared, 5, title));
+        CHECKERR(BindColumn(prepared, 6, attributes.track()));
+        CHECKERR(BindColumn(prepared, 7, disc));
     };
 
     bindValues();
@@ -573,7 +603,7 @@ void MusicDatabase::AddTrack(const MusicInfo& attributes, string path, time_t mt
     }
     else if (result == SQLITE_ROW)
     {
-        track_id = sqlite3_column_int(prepared, 0);
+        track_id = GetColumn<int>(prepared, 0);
     }
     else
     {
@@ -585,9 +615,9 @@ void MusicDatabase::AddTrack(const MusicInfo& attributes, string path, time_t mt
     stmt = "INSERT INTO file (track_id, path, mtime) VALUES(?,?,?);";
     CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
 
-    CHECKERR(sqlite3_bind_int(prepared, 1, track_id));
-    CHECKERR(sqlite3_bind_text(prepared, 2, path.c_str(), path.size(), nullptr));
-    CHECKERR(sqlite3_bind_int(prepared, 3, mtime));
+    CHECKERR(BindColumn(prepared, 1, track_id));
+    CHECKERR(BindColumn(prepared, 2, path));
+    CHECKERR(BindColumn(prepared, 3, mtime));
 
     result = sqlite3_step(prepared);
     if (result != SQLITE_DONE)
@@ -614,45 +644,30 @@ void MusicDatabase::GetAttributes(int file_id, MusicAttributes& attrs) const
                     "WHERE f.id = ?;";
     sqlite3_stmt *prepared;
     CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
-    CHECKERR(sqlite3_bind_int(prepared, 1, file_id));
+    CHECKERR(BindColumn(prepared, 1, file_id));
 
     int result = sqlite3_step(prepared);
     if (result == SQLITE_ROW)
     {
-#define STRCOL(_n) reinterpret_cast<const char*>(sqlite3_column_text(prepared, _n))
+        attrs.Artist      = GetColumn<string>(prepared, 0);
+        attrs.AlbumArtist = GetColumn<string>(prepared, 1);
+        attrs.Album       = GetColumn<string>(prepared, 2);
 
-        attrs.Artist = STRCOL(0);
-        attrs.AlbumArtist = STRCOL(1);
-        attrs.Album = STRCOL(2);
-
-        int year = sqlite3_column_int(prepared, 3);
+        int year = GetColumn<int>(prepared, 3);
         if (year == 0)
             attrs.Year.clear();
         else
             attrs.Year = to_string(year);
 
-        int track = sqlite3_column_int(prepared, 4);
+        int track = GetColumn<int>(prepared, 4);
         if (track == 0)
             attrs.Track.clear();
         else
             attrs.Track = to_string(track);
 
-        if (sqlite3_column_type(prepared,5) == SQLITE_NULL)
-            attrs.Disc.clear();
-        else
-            attrs.Disc = STRCOL(5);
-
-        if (sqlite3_column_type(prepared, 6) == SQLITE_NULL)
-            attrs.Title.clear();
-        else
-            attrs.Title = STRCOL(6);
-
-        if (sqlite3_column_type(prepared, 7) == SQLITE_NULL)
-            attrs.Path.clear();
-        else
-            attrs.Path = STRCOL(7);
-
-#undef STRCOL
+        attrs.Disc  = GetColumnOrDefault<string>(prepared, 5);
+        attrs.Title = GetColumnOrDefault<string>(prepared, 6);
+        attrs.Path  = GetColumnOrDefault<string>(prepared, 7);
     }
     else
     {
@@ -751,7 +766,7 @@ void MusicDatabase::RemoveFile(int file_id)
     sqlite3_stmt *prepared;
     string stmt = "DELETE FROM file WHERE id = ?;";
     CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
-    CHECKERR(sqlite3_bind_int(prepared, 1, file_id));
+    CHECKERR(BindColumn(prepared, 1, file_id));
     
     int result = sqlite3_step(prepared);
     if (result != SQLITE_DONE)
@@ -779,10 +794,10 @@ vector<tuple<int, int, time_t, string>> MusicDatabase::GetFiles() const
     int result;
     while ((result = sqlite3_step(prepared)) == SQLITE_ROW)
     {
-        int id = sqlite3_column_int(prepared, 0);
-        int track_id = sqlite3_column_int(prepared, 1);
-        time_t mtime = sqlite3_column_int64(prepared, 2);
-        string path = reinterpret_cast<const char*>(sqlite3_column_text(prepared, 3));
+        int id = GetColumn<int>(prepared, 0);
+        int track_id = GetColumn<int>(prepared, 1);
+        time_t mtime = GetColumn<int64_t>(prepared, 2);
+        string path = GetColumn<string>(prepared, 3);
 
         results.emplace_back(id, track_id, mtime, path);
     }

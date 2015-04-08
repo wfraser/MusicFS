@@ -562,7 +562,7 @@ int main(int argc, char **argv)
     try
     {
         cout << "Opening database (" << musicfs.database_path << ")...\n";
-        db.Init();
+        db.Init(musicfs.config, false);
     }
     catch (exception& ex)
     {
