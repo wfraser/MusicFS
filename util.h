@@ -6,6 +6,8 @@
 
 #pragma once
 
+#define countof(_) (sizeof(_)/sizeof(*_))
+
 inline std::string join(const std::vector<std::string>& vec, const std::string& separator)
 {
     std::stringstream result;

@@ -35,8 +35,6 @@ using namespace std;
 
 const char default_database_name[] = "music.db";
 
-#define countof(_) (sizeof(_) / sizeof(*(_)))
-        
 struct musicfs_data
 {
     Config config;
