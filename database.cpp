@@ -25,6 +25,7 @@
 #include "configuration.h"
 #include "musicinfo.h"
 #include "dbhelpers.h"
+#include "tabledefs.h"
 #include "database.h"
 
 using namespace std;
@@ -39,56 +40,6 @@ using namespace DBHelpers;
             throw exception(); \
         } \
     } while(0)
-
-const int DB_SCHEMA_VERSION = 1;
-
-static vector<string> s_tableStatements =
-{
-    // ON DELETE RESTRICT: referenced table's rows can't be deleted if references to them exist.
-    // ON DELETE CASCADE: if referenced table's rows are deleted, deletes propogate to rows that reference them.
-
-    "PRAGMA foreign_keys = ON;",
-    "CREATE TABLE IF NOT EXISTS artist ( id INTEGER PRIMARY KEY, name TEXT NOT NULL COLLATE NOCASE );",
-    "CREATE TABLE IF NOT EXISTS album  ( id INTEGER PRIMARY KEY, name TEXT NOT NULL COLLATE NOCASE );",
-    "CREATE TABLE IF NOT EXISTS track ( "
-        "id             INTEGER PRIMARY KEY, "
-        "artist_id      INTEGER NOT NULL, "
-        "albumartist_id INTEGER NOT NULL, "
-        "album_id       INTEGER NOT NULL, "
-        "year           INTEGER NOT NULL, "
-        "name           TEXT    NOT NULL COLLATE NOCASE, "
-        "track          INTEGER NOT NULL, "
-        "disc           TEXT    NOT NULL, "
-        "FOREIGN KEY(artist_id)      REFERENCES artist(id)  ON DELETE RESTRICT, "
-        "FOREIGN KEY(albumartist_id) REFERENCES artist(id)  ON DELETE RESTRICT, "
-        "FOREIGN KEY(album_id)       REFERENCES album(id)   ON DELETE RESTRICT "
-        ");",
-    "CREATE TABLE IF NOT EXISTS file ( "
-        "id             INTEGER PRIMARY KEY, "
-        "track_id       INTEGER NOT NULL, "
-        "path           TEXT    NOT NULL, "
-        "mtime          TEXT    NOT NULL, "
-        "FOREIGN KEY(track_id)      REFERENCES track(id)    ON DELETE RESTRICT "
-        ");",
-    "CREATE TABLE IF NOT EXISTS path ( "
-        "id             INTEGER PRIMARY KEY, "
-        "path           TEXT    NOT NULL UNIQUE ON CONFLICT IGNORE, "
-        "track_id       INTEGER, "
-        "file_id        INTEGER, "
-        "parent_id      INTEGER, "
-        "FOREIGN KEY(track_id)      REFERENCES track(id)    ON DELETE CASCADE, "
-        "FOREIGN KEY(file_id)       REFERENCES file(id)     ON DELETE CASCADE, "
-        "FOREIGN KEY(parent_id)     REFERENCES path(id)     ON DELETE CASCADE "
-        ");",
-    "CREATE TABLE IF NOT EXISTS config ( "
-        "id                 INTEGER PRIMARY KEY, "
-        "schema_version     INTEGER NOT NULL, "
-        "backing_fs_paths   BLOB NOT NULL, "
-        "extension_priority TEXT, "
-        "path_pattern       TEXT, "
-        "aliases_conf_path  TEXT "
-        ");",
-};
 
 #ifdef REGEXP_SUPPORT
 void sql_regexp_function(sqlite3_context *dbHandle, int nArgs, sqlite3_value **args)
@@ -152,9 +103,9 @@ void MusicDatabase::Init(Config& config, bool loadConfigFromDatabase)
     CHECKERR_MSG(sqlite3_open_v2(m_path.c_str(), &m_dbHandle, flags, nullptr),
         "Failed to open database file \"" << m_path << "\": " << sqlite3_errmsg(m_dbHandle));
 
-    for (size_t i = 0, n = s_tableStatements.size(); i < n; i++)
+    for (size_t i = 0, n = countof(TABLEDEFS); i < n; i++)
     {
-        string& statement = s_tableStatements[i];
+        string statement = TABLEDEFS[i];
         
         CHECKERR_MSG(sqlite3_exec(m_dbHandle, statement.c_str(), nullptr, nullptr, nullptr),
             "Error in SQL table creation statement " << i);
@@ -221,10 +172,10 @@ void MusicDatabase::Init(Config& config, bool loadConfigFromDatabase)
         string aliases_conf_path = GetColumn<string>(prepared, 3);
 
         INFO("Got the following previous config options from the database:");
-        INFO("backing_fs_paths: " << join(backing_fs_paths, "; "));
-        INFO("extension_priority: " << join(extension_priority, ";"));
-        INFO("path_pattern: " << path_pattern);
-        INFO("aliases_conf_path: " << aliases_conf_path);
+        INFO("\tbacking_fs_paths: " << join(backing_fs_paths, "; "));
+        INFO("\textension_priority: " << join(extension_priority, ";"));
+        INFO("\tpath_pattern: " << path_pattern);
+        INFO("\taliases_conf_path: " << aliases_conf_path);
 
         if (loadConfigFromDatabase)
         {
@@ -236,7 +187,50 @@ void MusicDatabase::Init(Config& config, bool loadConfigFromDatabase)
         else
         {
             // Check if they're equal.
-            //TODO
+
+            for (const string& path : config.backing_fs_paths)
+            {
+                bool found = false;
+                for (int i = 0, n = backing_fs_paths.size(); i < n; i++)
+                {
+                    if (path == backing_fs_paths[i])
+                    {
+                        backing_fs_paths.erase(backing_fs_paths.begin() + i);
+                        found = true;
+                        break;
+                    }
+                }
+
+                if (!found)
+                {
+                    // New path added.
+                    //TODO: update the config row
+                }
+            }
+
+            // backing_fs_paths now contains all paths that need to be
+            // removed from the database (they don't match paths given
+            // on the command line.
+
+            for (string path : backing_fs_paths)
+            {
+                INFO("Removing backing FS path " << path);
+
+                // Remove all files starting with path
+                stmt = "DELETE FROM file WHERE path LIKE ?;";
+                CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
+                path.append("/%");
+                CHECKERR(BindColumn(prepared, 1, path));
+                result = sqlite3_step(prepared);
+                if (result != SQLITE_DONE)
+                {
+                    CHECKERR(result);
+                }
+                int count = sqlite3_changes(m_dbHandle);
+                INFO("Removed " << count << " files from database.");
+            }
+
+            //TODO: update the config row
         }
     }
     else if (loadConfigFromDatabase)
@@ -506,7 +500,7 @@ vector<string> MusicDatabase::GetChildrenOfPath(
     return results;
 }
 
-void MusicDatabase::AddRow(const char *table, std::string value, int *outId)
+void MusicDatabase::AddSimpleRow(const char *table, std::string value, int *outId)
 {
     int result = 0;
 
@@ -546,19 +540,19 @@ void MusicDatabase::AddTrack(const MusicInfo& attributes, string path, time_t mt
     if (!GetId("artist", attributes.artist(), &artistId))
     {
         DEBUG("adding artist " << attributes.artist());
-        AddRow("artist", attributes.artist(), &artistId);
+        AddSimpleRow("artist", attributes.artist(), &artistId);
     }
 
     if (!GetId("artist", attributes.albumartist(), &albumartistId))
     {
         DEBUG("adding artist " << attributes.albumartist());
-        AddRow("artist", attributes.albumartist(), &albumartistId);
+        AddSimpleRow("artist", attributes.albumartist(), &albumartistId);
     }
 
     if (!GetId("album", attributes.album(), &albumId))
     {
         DEBUG("adding album " << attributes.album());
-        AddRow("album", attributes.album(), &albumId);
+        AddSimpleRow("album", attributes.album(), &albumId);
     }
 
     // Bind these to local strings so we control their lifetimes.
@@ -736,7 +730,7 @@ void MusicDatabase::CleanTracks()
     int count = sqlite3_changes(m_dbHandle);
     if (count > 0)
     {
-        DEBUG("Cleaned " << count << " tracks with no files.");
+        INFO("Cleaned " << count << " tracks with no files.");
     }
 }
 
@@ -763,7 +757,7 @@ void MusicDatabase::CleanPaths()
         sqlite3_reset(prepared);
 
         deleted_count = sqlite3_changes(m_dbHandle);
-        DEBUG("CleanPaths round " << round << " removed " << deleted_count << " rows.");
+        INFO("CleanPaths round " << round << " removed " << deleted_count << " rows.");
         round++;
 
     } while (deleted_count > 0);

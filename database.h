@@ -52,7 +52,7 @@ public:
 private:
 
     bool GetId(const char *table, std::string value, int *outId);
-    void AddRow(const char *table, std::string value, int *outId);
+    void AddSimpleRow(const char *table, std::string value, int *outId);
     void CleanTable(const char *table);
 
     sqlite3 *m_dbHandle;
