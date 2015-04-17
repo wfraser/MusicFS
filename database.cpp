@@ -170,6 +170,8 @@ void MusicDatabase::Init(Config& config, bool loadConfigFromDatabase)
         vector<string> extension_priority = GetColumn<vector<string>>(prepared, 1);
         string path_pattern = GetColumn<string>(prepared, 2);
         string aliases_conf_path = GetColumn<string>(prepared, 3);
+        
+        sqlite3_finalize(prepared);
 
         INFO("Got the following previous config options from the database:");
         INFO("\tbacking_fs_paths: " << join(backing_fs_paths, "; "));
@@ -190,27 +192,19 @@ void MusicDatabase::Init(Config& config, bool loadConfigFromDatabase)
 
             for (const string& path : config.backing_fs_paths)
             {
-                bool found = false;
                 for (int i = 0, n = backing_fs_paths.size(); i < n; i++)
                 {
                     if (path == backing_fs_paths[i])
                     {
                         backing_fs_paths.erase(backing_fs_paths.begin() + i);
-                        found = true;
                         break;
                     }
-                }
-
-                if (!found)
-                {
-                    // New path added.
-                    //TODO: update the config row
                 }
             }
 
             // backing_fs_paths now contains all paths that need to be
             // removed from the database (they don't match paths given
-            // on the command line.
+            // on the command line).
 
             for (string path : backing_fs_paths)
             {
@@ -228,9 +222,19 @@ void MusicDatabase::Init(Config& config, bool loadConfigFromDatabase)
                 }
                 int count = sqlite3_changes(m_dbHandle);
                 INFO("Removed " << count << " files from database.");
+                sqlite3_finalize(prepared);
             }
 
-            //TODO: update the config row
+            // Update the config row
+            stmt = "UPDATE config SET backing_fs_paths = ? WHERE id = 1;";
+            CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
+            CHECKERR(BindColumn(prepared, 1, config.backing_fs_paths));
+            result = sqlite3_step(prepared);
+            if (result != SQLITE_DONE)
+            {
+                CHECKERR(result);
+            }
+            sqlite3_finalize(prepared);
         }
     }
     else if (loadConfigFromDatabase)
