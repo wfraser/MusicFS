@@ -234,7 +234,6 @@ void MusicDatabase::Init(Config& config, bool loadConfigFromDatabase)
             {
                 CHECKERR(result);
             }
-            sqlite3_finalize(prepared);
         }
     }
     else if (loadConfigFromDatabase)
@@ -714,6 +713,8 @@ void MusicDatabase::CleanTable(const char *table)
     {
         DEBUG("Cleaned " << count << " entries from " << table << " table.");
     }
+
+    sqlite3_finalize(prepared);
 }
 
 void MusicDatabase::CleanTracks()
