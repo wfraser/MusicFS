@@ -556,11 +556,12 @@ int main(int argc, char **argv)
     }
 
     MusicDatabase db(musicfs.database_path);
+    bool rebuild_paths = false;
 
     try
     {
         cout << "Opening database (" << musicfs.database_path << ")...\n";
-        db.Init(musicfs.config, false);
+        db.Init(musicfs.config, false, &rebuild_paths);
     }
     catch (exception& ex)
     {
@@ -592,6 +593,10 @@ int main(int argc, char **argv)
     db.BeginTransaction();
 
     cout << "Computing paths...\n";
+    if (rebuild_paths)
+    {
+        groveled_ids = db.GetAllTrackFileIds();
+    }
     build_paths(db, pathPattern, groveled_ids, aliases);
 
     db.EndTransaction();

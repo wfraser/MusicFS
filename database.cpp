@@ -96,8 +96,10 @@ MusicDatabase::MusicDatabase(const char *dbFile)
 {
 }
 
-void MusicDatabase::Init(Config& config, bool loadConfigFromDatabase)
+void MusicDatabase::Init(Config& config, bool load_config_from_db, bool* out_paths_need_rebuilding)
 {
+    *out_paths_need_rebuilding = false;
+
     int flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE;
 
     CHECKERR_MSG(sqlite3_open_v2(m_path.c_str(), &m_dbHandle, flags, nullptr),
@@ -179,7 +181,7 @@ void MusicDatabase::Init(Config& config, bool loadConfigFromDatabase)
         INFO("\tpath_pattern: " << path_pattern);
         INFO("\taliases_conf_path: " << aliases_conf_path);
 
-        if (loadConfigFromDatabase)
+        if (load_config_from_db)
         {
             config.backing_fs_paths = move(backing_fs_paths);
             config.extension_priority = move(extension_priority);
@@ -226,7 +228,7 @@ void MusicDatabase::Init(Config& config, bool loadConfigFromDatabase)
             }
 
             // Update the config row
-            stmt = "UPDATE config SET backing_fs_paths = ? WHERE id = 1;";
+            stmt = "UPDATE config SET backing_fs_paths = ? WHERE id = 0;";
             CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
             CHECKERR(BindColumn(prepared, 1, config.backing_fs_paths));
             result = sqlite3_step(prepared);
@@ -234,9 +236,33 @@ void MusicDatabase::Init(Config& config, bool loadConfigFromDatabase)
             {
                 CHECKERR(result);
             }
+            sqlite3_finalize(prepared);
+
+            // Check if the path pattern is the same as the one in the DB.
+            // TODO: check artist aliases also
+
+            if (config.path_pattern != path_pattern)
+            {
+                // Rebuild all paths.
+                INFO("Rebuilding paths because path pattern changed...");
+                CHECKERR(sqlite3_exec(m_dbHandle, "DELETE FROM path;", nullptr, nullptr, nullptr));
+
+                // Update the config row.
+                stmt = "UPDATE config SET path_pattern = ? WHERE id = 0;";
+                CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
+                CHECKERR(BindColumn(prepared, 1, config.path_pattern));
+                result = sqlite3_step(prepared);
+                if (result != SQLITE_DONE)
+                {
+                    CHECKERR(result);
+                }
+                sqlite3_finalize(prepared);
+
+                *out_paths_need_rebuilding = true;
+            }
         }
     }
-    else if (loadConfigFromDatabase)
+    else if (load_config_from_db)
     {
         cout << "No saved configuration was found in the database.\n";
         throw exception();
@@ -265,8 +291,8 @@ void MusicDatabase::Init(Config& config, bool loadConfigFromDatabase)
         {
             CHECKERR(result);
         }
+        sqlite3_finalize(prepared);
     }
-    sqlite3_finalize(prepared);
 }
 
 MusicDatabase::~MusicDatabase()
@@ -818,6 +844,31 @@ vector<tuple<int, int, time_t, string>> MusicDatabase::GetFiles() const
     sqlite3_finalize(prepared);
 
     return results;
+}
+
+vector<pair<int, int>> MusicDatabase::GetAllTrackFileIds() const
+{
+    vector<pair<int, int>> track_file_ids;
+
+    sqlite3_stmt *prepared;
+    string stmt = "SELECT id, track_id FROM file;";
+    CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
+
+    int result;
+    while ((result = sqlite3_step(prepared)) == SQLITE_ROW)
+    {
+        int file_id = GetColumn<int>(prepared, 0);
+        int track_id = GetColumn<int>(prepared, 1);
+        track_file_ids.emplace_back(track_id, file_id);
+    }
+    if (result != SQLITE_DONE)
+    {
+        CHECKERR(result);
+    }
+
+    sqlite3_finalize(prepared);
+
+    return track_file_ids;
 }
 
 void MusicDatabase::BeginTransaction()
