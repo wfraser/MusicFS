@@ -12,13 +12,25 @@
 
 int main(int argc, char **argv)
 {
-    if (argc != 3)
+    char* filename = nullptr;
+    char* tagname = nullptr;
+
+    if (argc == 3)
     {
-        std::cout << "usage: tag <tagname> <filename>\n";
+        tagname = argv[2];
+        filename = argv[1];
+    }
+    else if (argc == 2)
+    {
+        filename = argv[1];
+    }
+    else
+    {
+        std::cout << "usage: tag [<tagname>] <filename>\n";
         return -1;
     }
 
-    TagLib::FileRef f(argv[2]);
+    TagLib::FileRef f(filename);
 
     if (f.file() == nullptr)
     {
@@ -26,8 +38,24 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    std::cout << f.file()->properties()[argv[1]].toString().to8Bit(true)
-        << std::endl;
+    if (tagname != nullptr)
+    {
+        std::cout << f.file()->properties()[tagname].toString().to8Bit(true)
+            << std::endl;
+    }
+    else
+    {
+        const TagLib::PropertyMap properties = f.file()->properties();
+
+        for (const auto& pair : properties)
+        {
+            const TagLib::String& name = pair.first;
+            const TagLib::StringList& value = pair.second;
+
+            std::cout << name.to8Bit(true) << "\t"
+                << value.toString().to8Bit(true) << std::endl;
+        }
+    }
 
     return 0;
 }
