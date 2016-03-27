@@ -1,0 +1,31 @@
+language: cpp
+sudo: required
+dist: trusty
+matrix:
+    include:
+        - compiler: gcc
+          addons:
+              apt:
+                  sources:
+                      - ubuntu-toolchain-r-test
+                  packages:
+                      - g++-5
+                      - libfuse-dev
+                      - libsqlite3-dev
+                      - libtag1-dev
+          env: COMPILER=g++-5
+        - compiler: clang
+          addons:
+              apt:
+                  sources:
+                      - ubuntu-toolchain-r-test
+                      - llvm-toolchain-precise-3.7
+                  packages:
+                      - clang-3.7
+                      - libfuse-dev
+                      - libsqlite3-dev
+                      - libtag1-dev
+          env: COMPILER=clang++-3.7
+script:
+    - $COMPILER --version
+    - CXX=$COMPILER make
