@@ -1,0 +1,8 @@
+language: cpp
+script: make
+compiler:
+    - clang
+    - gcc
+before_install:
+    - sudo apt-get -qq update
+    - sudo apt-get install -y libfuse-dev libsqlite3-dev libtag1-dev
