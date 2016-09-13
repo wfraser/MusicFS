@@ -584,13 +584,13 @@ int main(int argc, char **argv)
         }
     }
 
-    db.BeginTransaction();
+    MusicDatabaseTransaction transaction = db.BeginTransaction();
 
     cout << "Groveling music. This may take a while...\n";
     vector<pair<int,int>> groveled_ids = grovel(musicfs.config.backing_fs_paths, db);
 
-    db.EndTransaction();
-    db.BeginTransaction();
+    transaction.Commit();
+    transaction = db.BeginTransaction();
 
     cout << "Computing paths...\n";
     if (rebuild_paths)
@@ -599,7 +599,7 @@ int main(int argc, char **argv)
     }
     build_paths(db, pathPattern, groveled_ids, aliases);
 
-    db.EndTransaction();
+    transaction.Commit();
 
     cout << "Ready to go!\n";
     musicfs.startup_time = time(nullptr);

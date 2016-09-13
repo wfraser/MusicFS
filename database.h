@@ -16,6 +16,21 @@ struct sqlite3;
 class MusicInfo;
 class Config;
 
+class MusicDatabaseTransaction
+{
+public:
+    MusicDatabaseTransaction(sqlite3* databaseHandle);
+    ~MusicDatabaseTransaction();
+    MusicDatabaseTransaction& operator=(MusicDatabaseTransaction other);
+
+    void Commit();
+    void Discard();
+
+private:
+    sqlite3* m_dbHandle;
+    bool m_dismissed;
+};
+
 class MusicDatabase
 {
 public:
@@ -54,8 +69,7 @@ public:
 
     std::vector<std::pair<int, int>> GetAllTrackFileIds() const;
     
-    void BeginTransaction();
-    void EndTransaction();
+    MusicDatabaseTransaction BeginTransaction();
 
     void CleanTables();
     void CleanPaths();

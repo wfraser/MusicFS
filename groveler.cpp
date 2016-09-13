@@ -83,7 +83,7 @@ vector<pair<int,int>> grovel(const vector<string>& base_paths, MusicDatabase& db
         }
 
         dirent *e;
-        while ((e = readdir(dir)) != nullptr)
+        while ((errno = 0, e = readdir(dir)) != nullptr)
         {
             if ((strcmp(e->d_name, ".") == 0)
                 || (strcmp(e->d_name, "..") == 0))

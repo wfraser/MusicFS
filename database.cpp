@@ -871,7 +871,17 @@ vector<pair<int, int>> MusicDatabase::GetAllTrackFileIds() const
     return track_file_ids;
 }
 
-void MusicDatabase::BeginTransaction()
+// Note:
+//  - these transactions cannot be nested
+//  - if the database is closed before the transaction is committed, it is discarded.
+MusicDatabaseTransaction MusicDatabase::BeginTransaction()
+{
+    return MusicDatabaseTransaction(m_dbHandle);
+}
+
+MusicDatabaseTransaction::MusicDatabaseTransaction(sqlite3* databaseHandle)
+    : m_dbHandle(databaseHandle)
+    , m_dismissed(false)
 {
     int result = sqlite3_exec(m_dbHandle, "BEGIN;", nullptr, nullptr, nullptr);
     if (result != SQLITE_DONE)
@@ -880,11 +890,43 @@ void MusicDatabase::BeginTransaction()
     }
 }
 
-void MusicDatabase::EndTransaction()
+MusicDatabaseTransaction::~MusicDatabaseTransaction()
 {
-    int result = sqlite3_exec(m_dbHandle, "END;", nullptr, nullptr, nullptr);
+    if (!m_dismissed)
+    {
+        Discard();
+    }
+    m_dismissed = true;
+}
+
+MusicDatabaseTransaction& MusicDatabaseTransaction::operator=(MusicDatabaseTransaction other)
+{
+    if (!m_dismissed)
+    {
+        Discard();
+    }
+    m_dbHandle = other.m_dbHandle;
+    m_dismissed = other.m_dismissed;
+    other.m_dismissed = true;
+    return *this;
+}
+
+void MusicDatabaseTransaction::Commit()
+{
+    int result = sqlite3_exec(m_dbHandle, "COMMIT;", nullptr, nullptr, nullptr);
     if (result != SQLITE_DONE)
     {
         CHECKERR(result);
     }
+    m_dismissed = true;
+}
+
+void MusicDatabaseTransaction::Discard()
+{
+    int result = sqlite3_exec(m_dbHandle, "ROLLBACK;", nullptr, nullptr, nullptr);
+    if (result != SQLITE_DONE)
+    {
+        CHECKERR(result);
+    }
+    m_dismissed = true;
 }
