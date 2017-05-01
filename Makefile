@@ -18,7 +18,7 @@ musicfs: $(OBJS)
 	$(CXX) $(LDFLAGS) -o musicfs $(OBJS) $(LDLIBS)
 
 .PHONY: tools
-tools: tools/checkempty tools/tag
+tools: tools/checkempty tools/tag tools/stripcomments
 
 clean:
-	rm -f *.o musicfs tools/checkempty tools/tag
+	rm -f *.o musicfs tools/checkempty tools/tag tools/stripcomments

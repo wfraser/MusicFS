@@ -2,5 +2,6 @@
 *.db
 *.swp
 musicfs
-tag
-checkempty
+tools/tag
+tools/checkempty
+tools/stripcomments
