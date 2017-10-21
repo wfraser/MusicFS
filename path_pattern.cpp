@@ -4,10 +4,10 @@
 // Copyright (c) 2014-2015 by William R. Fraser
 //
 
+#include <functional>
 #include <iostream>
 #include <string>
 #include <vector>
-#include <functional>
 
 #include "logging.h"
 #include "database.h"

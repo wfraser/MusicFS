@@ -4,14 +4,14 @@
 // Copyright (c) 2014-2015 by William R. Fraser
 // 
 
-#include <iostream>
-#include <fstream>
-#include <string>
-#include <unordered_set>
-#include <unordered_map>
 #include <algorithm>
+#include <fstream>
 #include <functional>
 #include <cctype>
+#include <iostream>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include "aliases.h"
 
 using namespace std;

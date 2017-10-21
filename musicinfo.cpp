@@ -4,8 +4,8 @@
 // Copyright (c) 2014-2015 by William R. Fraser
 //
 
-#include <typeinfo>
 #include <memory>
+#include <typeinfo>
 
 #include <strings.h>
 

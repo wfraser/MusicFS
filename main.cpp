@@ -7,14 +7,15 @@
 #include <fuse.h>
 #include <fuse_opt.h>
 
-#include <iostream>
-#include <memory>
-#include <vector>
-#include <string>
-#include <unordered_map>
-#include <sstream>
 #include <cstddef>
 #include <cstring>
+#include <functional>
+#include <iostream>
+#include <memory>
+#include <sstream>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 #include <unistd.h>
 #include <time.h>
