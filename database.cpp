@@ -4,16 +4,18 @@
 // Copyright (c) 2014-2015 by William R. Fraser
 //
 
+#include <algorithm>
+#include <functional>
 #include <iostream>
-#include <string>
-#include <vector>
 #include <memory>
+#include <regex>
 #include <sstream>
+#include <string>
 #include <unordered_set>
 #include <unordered_map>
 #include <utility>
-#include <regex>
-#include <algorithm>
+#include <vector>
+
 #include <assert.h>
 
 #include <sqlite3.h>

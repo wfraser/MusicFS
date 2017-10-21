@@ -4,11 +4,12 @@
 // Copyright (c) 2014-2015 by William R. Fraser
 //
 
-#include <string>
-#include <memory>
-#include <vector>
 #include <deque>
+#include <functional>
+#include <memory>
+#include <string>
 #include <unordered_map>
+#include <vector>
 
 #include <sys/stat.h>
 #include <sys/types.h>
