@@ -3,10 +3,10 @@ $(shell test -d .git && echo "\ngit revision" && git log --pretty="format:%h %ai
 \nbuilt $(shell date "+%Y-%m-%d %H:%M:%S %z")\n
 
 DEFINES=-DFUSE_USE_VERSION=28 \
-        -D_FILE_OFFSET_BITS=64 \
+		$(shell pkg-config --cflags fuse) \
         -DMUSICFS_VERSION="\"$(VERSION)\"" \
 
-CXXFLAGS+=-std=c++14 -Wall -pedantic $(DEFINES) -I/usr/include/fuse -g
+CXXFLAGS+=-std=c++14 -Wall -pedantic $(DEFINES) -g
 LDFLAGS+=-Wall -lstdc++ -lm -ltag -lfuse -lsqlite3
 
 all: musicfs
