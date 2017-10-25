@@ -56,7 +56,7 @@ bool ArtistAliases::ParseFile(const string& path)
             continue;
 
         string lower = line;
-        transform(line.begin(), line.end(), lower.begin(), ::tolower);
+        transform(line.begin(), line.end(), back_inserter(lower), ::tolower);
         trim_string(lower);
         
         if (lower.size() == 0) // empty line after trimming
@@ -92,7 +92,7 @@ bool ArtistAliases::ParseFile(const string& path)
 const string* ArtistAliases::Lookup(const string& query) const
 {
     string lower;
-    transform(query.begin(), query.end(), lower.begin(), ::tolower);
+    transform(query.begin(), query.end(), back_inserter(lower), ::tolower);
 
     auto pos = m_map.find(lower);
     if (pos != m_map.end())
