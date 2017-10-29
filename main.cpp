@@ -19,6 +19,7 @@
 
 #include <unistd.h>
 #include <time.h>
+#include <sys/param.h>
 
 int musicfs_log_level;
 bool musicfs_log_stderr = false;
@@ -73,10 +74,8 @@ void fake_directory_stat(struct stat *stbuf)
     stbuf->st_uid  = getuid();
     stbuf->st_gid  = getgid();
 
-    // Directory atime, mtime, and ctime are set to our startup time.
-    stbuf->st_ctim.tv_sec = musicfs.startup_time;
-    stbuf->st_ctim.tv_nsec = 0;
-    stbuf->st_atim = stbuf->st_mtim = stbuf->st_ctim;
+    // Directory timestamps are set to our startup time.
+    stbuf->st_atime = stbuf->st_mtime = stbuf->st_ctime = musicfs.startup_time;
 
     // This value needs to be at least 1.
     // The actual value doesn't seem to matter much, and is expensive to compute.
@@ -289,9 +288,22 @@ int musicfs_listxattr(const char *path, char *list, size_t size)
     return requiredSize;
 }
 
+#ifdef __APPLE__
+int musicfs_getxattr(const char *path, const char *name, char *value, size_t size,
+        u_int32_t position)
+#else
 int musicfs_getxattr(const char *path, const char *name, char *value, size_t size)
+#endif
 {
     DEBUG("getxattr(" << name << ") " << path);
+
+#ifdef __APPLE__
+    if (position != 0)
+    {
+        ERROR("getxattr: macos position argument nonzero; this is unsupported");
+        return -EINVAL;
+    }
+#endif
 
     string partialRealPath;
     bool exists = musicfs.db->GetRealPath(path, partialRealPath);
@@ -556,7 +568,14 @@ int main(int argc, char **argv)
         INFO("No database path specified, using \"" << default_database_name
             << "\" in the current directory.");
 
+#ifdef _GNU_SOURCE
         musicfs.database_path = get_current_dir_name();
+#else
+        char buf[MAXPATHLEN];
+        getcwd(buf, MAXPATHLEN);
+        musicfs.database_path = buf;
+#endif
+
         size_t len = strlen(musicfs.database_path);
 
         musicfs.database_path = reinterpret_cast<char*>(realloc(musicfs.database_path,
