@@ -592,7 +592,6 @@ int main(int argc, char **argv)
     if (!musicfs.aliases_conf.empty())
     {
         DEBUG("Artist aliases file: " << musicfs.aliases_conf);
-        ArtistAliases aliases;
         bool ok = aliases.ParseFile(musicfs.aliases_conf);
         if (!ok)
         {

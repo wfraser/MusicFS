@@ -14,13 +14,16 @@
 #include <unordered_set>
 #include "aliases.h"
 
+#define MUSICFS_LOG_SUBSYS "ArtistAliases"
+#include "logging.h"
+
 using namespace std;
 
 ArtistAliases::ArtistAliases()
 {
 }
 
-void trim_string(string& s)
+void trim_string_end(string& s)
 {
     if (s.size() == 0)
         return;
@@ -30,12 +33,31 @@ void trim_string(string& s)
     {
         if (isspace(*c))
         {
-            *c = '\0';
+            s.pop_back();
         }
         else
         {
             break;
         }
+    }
+}
+
+void trim_string_front(string& s)
+{
+    if (s.size() == 0)
+        return;
+
+    size_t start = 0;
+    for (; start < s.size(); start++)
+    {
+        if (!isspace(s[start]))
+            break;
+    }
+
+    if (start != 0)
+    {
+        s.replace(0, s.size() - start, s, start, -1);
+        s.resize(s.size() - start);
     }
 }
 
@@ -55,14 +77,12 @@ bool ArtistAliases::ParseFile(const string& path)
         if (line[0] == '#') // comment
             continue;
 
-        string lower = line;
-        transform(line.begin(), line.end(), back_inserter(lower), ::tolower);
-        trim_string(lower);
+        trim_string_end(line);
         
-        if (lower.size() == 0) // empty line after trimming
+        if (line.size() == 0) // empty line after trimming
             continue;
 
-        if (isspace(lower[0]))
+        if (isspace(line[0]))
         {
             if (canonical == nullptr)
             {
@@ -71,6 +91,11 @@ bool ArtistAliases::ParseFile(const string& path)
                 throw exception();
             }
 
+            trim_string_front(line);
+            string lower;
+            transform(line.begin(), line.end(), back_inserter(lower), ::tolower);
+
+            DEBUG(lower << " -> " << *canonical);
             auto pair = m_map.emplace(lower, canonical);
             if (!pair.second)
             {
@@ -82,7 +107,7 @@ bool ArtistAliases::ParseFile(const string& path)
         }
         else
         {
-            canonical = &(*m_canonical.emplace(lower).first);
+            canonical = &(*m_canonical.emplace(line).first);
         }
     }
 
