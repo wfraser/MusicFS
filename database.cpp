@@ -39,7 +39,7 @@ using namespace std;
         } \
     } while(0)
 
-static vector<string> s_tableStatements =
+static string s_tableStatements[] =
 {
     // ON DELETE RESTRICT: referenced table's rows can't be deleted if references to them exist.
     // ON DELETE CASCADE: if referenced table's rows are deleted, deletes propogate to rows that reference them.
@@ -135,7 +135,8 @@ MusicDatabase::MusicDatabase(const char *dbFile)
     CHECKERR_MSG(sqlite3_open_v2(dbFile, &m_dbHandle, flags, nullptr),
         "Failed to open database file \"" << dbFile << "\": " << sqlite3_errmsg(m_dbHandle));
 
-    for (size_t i = 0, n = s_tableStatements.size(); i < n; i++)
+    size_t numTableStatements = sizeof(s_tableStatements) / sizeof(s_tableStatements[0]);
+    for (size_t i = 0, n = numTableStatements; i < n; i++)
     {
         string& statement = s_tableStatements[i];
         
