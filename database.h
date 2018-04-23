@@ -18,7 +18,7 @@ class MusicInfo;
 class MusicDatabase
 {
 public:
-    MusicDatabase(const char *dbFile);
+    MusicDatabase(const std::string& dbPath);
     ~MusicDatabase();
 
     MusicDatabase(const MusicDatabase&) = delete;

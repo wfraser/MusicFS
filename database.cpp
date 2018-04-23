@@ -128,12 +128,12 @@ string regex_escape(const string& s)
 }
 #endif
 
-MusicDatabase::MusicDatabase(const char *dbFile)
+MusicDatabase::MusicDatabase(const string& dbPath)
 {
     int flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE;
 
-    CHECKERR_MSG(sqlite3_open_v2(dbFile, &m_dbHandle, flags, nullptr),
-        "Failed to open database file \"" << dbFile << "\": " << sqlite3_errmsg(m_dbHandle));
+    CHECKERR_MSG(sqlite3_open_v2(dbPath.c_str(), &m_dbHandle, flags, nullptr),
+        "Failed to open database file \"" << dbPath << "\": " << sqlite3_errmsg(m_dbHandle));
 
     size_t numTableStatements = sizeof(s_tableStatements) / sizeof(s_tableStatements[0]);
     for (size_t i = 0, n = numTableStatements; i < n; i++)

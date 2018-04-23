@@ -563,30 +563,28 @@ int main(int argc, char **argv)
     INFO("File extension priority: ");
     for (const auto& ext : musicfs.extension_priority) INFO("\t" << ext);
 
+    string database_path;
     if (musicfs.database_path == nullptr)
     {
         INFO("No database path specified, using \"" << default_database_name
             << "\" in the current directory.");
 
 #ifdef _GNU_SOURCE
-        musicfs.database_path = get_current_dir_name();
+        database_path = get_current_dir_name();
 #else
         char buf[MAXPATHLEN];
         getcwd(buf, MAXPATHLEN);
-        musicfs.database_path = buf;
+        database_path = buf;
 #endif
 
-        size_t len = strlen(musicfs.database_path);
-
-        musicfs.database_path = reinterpret_cast<char*>(realloc(musicfs.database_path,
-                len + countof(default_database_name) + 2 /* one for trailing NUL, one for slash */));
-
-        musicfs.database_path[len] = '/';
-        strcpy(musicfs.database_path + len + 1, default_database_name);
+        database_path.push_back('/');
+        database_path += default_database_name;
+    } else {
+        database_path = musicfs.database_path;
     }
 
-    cout << "Opening database (" << musicfs.database_path << ")...\n";
-    MusicDatabase db(musicfs.database_path);
+    cout << "Opening database (" << database_path << ")...\n";
+    MusicDatabase db(database_path);
 
     ArtistAliases aliases;
     if (!musicfs.aliases_conf.empty())
