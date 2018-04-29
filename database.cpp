@@ -470,8 +470,7 @@ void MusicDatabase::AddTrack(const MusicInfo& attributes, string path, time_t mt
                         "AND album_id = ? "
                         "AND year = ? "
                         "AND name = ? "
-                        "AND track = ? "
-                        "AND disc = ?;";
+                        "AND track = ?;";
     sqlite3_stmt *prepared;
     CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
 
@@ -483,7 +482,6 @@ void MusicDatabase::AddTrack(const MusicInfo& attributes, string path, time_t mt
         CHECKERR(sqlite3_bind_int(prepared, 4, attributes.year()));
         CHECKERR(sqlite3_bind_text(prepared, 5, title.c_str(), title.size(), nullptr));
         CHECKERR(sqlite3_bind_int(prepared, 6, attributes.track()));
-        CHECKERR(sqlite3_bind_text(prepared, 7, disc.c_str(), disc.size(), nullptr));
     };
 
     bindValues();
@@ -498,7 +496,9 @@ void MusicDatabase::AddTrack(const MusicInfo& attributes, string path, time_t mt
         stmt = "INSERT INTO track (artist_id, albumartist_id, album_id, year, name, track, disc) "
             "VALUES(?,?,?,?,?,?,?);";
         CHECKERR(sqlite3_prepare_v2(m_dbHandle, stmt.c_str(), stmt.size(), &prepared, nullptr));
+
         bindValues();
+        CHECKERR(sqlite3_bind_text(prepared, 7, disc.c_str(), disc.size(), nullptr));
 
         result = sqlite3_step(prepared);
         if (result == SQLITE_DONE)
