@@ -6,7 +6,7 @@ DEFINES=-DFUSE_USE_VERSION=28 \
 		$(shell pkg-config --cflags fuse) \
         -DMUSICFS_VERSION="\"$(VERSION)\"" \
 
-CXXFLAGS+=-std=c++14 -Wall -pedantic $(DEFINES) -g
+CXXFLAGS+=-std=c++14 -Wall -Wextra -Wpedantic $(DEFINES) -g
 LDFLAGS+=$(shell pkg-config --libs fuse taglib sqlite3)
 
 all: musicfs
