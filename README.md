@@ -58,7 +58,7 @@ Specify `-o pattern=<pattern>` when running MusicFS. The format of the pattern i
 
 The default pattern is `%albumartist%/[%year%] %album%/%track% - %title%.%ext%`.
 Make sure when specifying `-o format` to use quotes as appropriate.
-E.g.: `sudo ./musicfs -v -o allow_other,format="%ext%/%albumartist% - %album% (%year%)/%track% - %artist% - %title%.%ext%" /archive/music /srv/music`
+E.g.: `sudo ./musicfs -v -o allow_other,pattern="%ext%/%albumartist% - %album% (%year%)/%track% - %artist% - %title%.%ext%" /archive/music /srv/music`
 
 Future ideas
 ------------
